@@ -116,6 +116,26 @@ def main() -> None:
     p.add_argument("--skip-install", action="store_true")
     p.add_argument("--print-command", action="store_true",
                    help="print the stage argv and exit (no sync, no run)")
+    # Remote kernels execute this file through IPython, so argv belongs to the
+    # kernel launcher; Colab and Kaggle hand the stage over in the environment.
+    if os.environ.get("STAGE"):
+        stage = os.environ["STAGE"]
+        stage_args = json.loads(os.environ.get("STAGE_ARGS") or "[]")
+        repo = Path(os.environ.get("REPO_DIR", "/content/LFM3-Ternary"))
+        head = sync_repo(repo, os.environ.get("REPO_URL",
+                                              "https://github.com/akorite/LFM3-Ternary"),
+                         os.environ.get("BRANCH", "feat/lfm3-ternary")) \
+            if os.environ.get("SKIP_SYNC") != "1" else None
+        if os.environ.get("SKIP_INSTALL") != "1":
+            install(repo)
+        cmd = stage_command(stage, stage_args)
+        print(json.dumps({"stage": stage, "head": head, "command": cmd}), flush=True)
+        done = subprocess.run(cmd, cwd=repo)
+        found = [a for a in ARTIFACTS[stage] if (repo / a).exists()]
+        print("STAGE_RESULT " + json.dumps({"stage": stage, "returncode": done.returncode,
+                                            "artifacts": found}), flush=True)
+        raise SystemExit(done.returncode)
+
     argv = sys.argv[1:]
     passthrough: list[str] = []
     if "--" in argv:          # everything after `--` belongs to the stage

@@ -40,7 +40,7 @@ CTRL="$(mktemp -d)"
 trap 'rm -rf "$CTRL"' EXIT
 cp "$HERE/remote_stage.py" "$CTRL/remote_stage.py"
 
-ARGS_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' -- "$@")"
+ARGS_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")"
 
 colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout "$TIMEOUT" \
   --env "STAGE=$STAGE" \
