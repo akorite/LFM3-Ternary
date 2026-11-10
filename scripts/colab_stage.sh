@@ -73,7 +73,7 @@ PY
 ELAPSED=0
 while :; do
   OUT="$(colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 180 \
-        --env "STAGE=status" --env "STAGE_ARGS=[\"$STAGE\"]" \
+        --env "STAGE=status" --env "STAGE_ARGS=[\"$STAGE\"]" --env "DETACHED=0" \
         --env "REPO_DIR=/content/LFM3-Ternary" --env "SKIP_SYNC=1" --env "SKIP_INSTALL=1" \
         2>&1)"
   STATE="$(printf '%s\n' "$OUT" | grep '^{' | tail -1)"

@@ -173,7 +173,8 @@ def main() -> None:
                    help="print the stage argv and exit (no sync, no run)")
     # Remote kernels execute this file through IPython, so argv belongs to the
     # kernel launcher; Colab and Kaggle hand the stage over in the environment.
-    if os.environ.get("STAGE") and os.environ.get("DETACHED") == "1":
+    if (os.environ.get("STAGE") and os.environ.get("DETACHED") == "1"
+            and os.environ["STAGE"] != "status"):
         repo = Path(os.environ.get("REPO_DIR", "/content/LFM3-Ternary"))
         stage = os.environ["STAGE"]
         runner = os.environ.get("RUNNER", str(repo / "runner.py"))

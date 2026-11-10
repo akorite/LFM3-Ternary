@@ -1,11 +1,6 @@
-[0;31m---------------------------------------------------------------------------[0m[0;31mUnboundLocalError[0m                         Traceback (most recent call last)[0;32m/tmp/ipykernel_818/3232075056.py[0m in [0;36m<cell line: 0>[0;34m()[0m
-[1;32m    273[0m [0;34m[0m[0m
-[1;32m    274[0m [0;32mif[0m [0m__name__[0m [0;34m==[0m [0;34m"__main__"[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
-[0;32m--> 275[0;31m     [0mmain[0m[0;34m([0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
-[0m[0;32m/tmp/ipykernel_818/3232075056.py[0m in [0;36mmain[0;34m()[0m
-[1;32m    186[0m         [0mrunner[0m [0;34m=[0m [0mos[0m[0;34m.[0m[0menviron[0m[0;34m.[0m[0mget[0m[0;34m([0m[0;34m"RUNNER"[0m[0;34m,[0m [0mstr[0m[0;34m([0m[0mrepo[0m [0;34m/[0m [0;34m"runner.py"[0m[0;34m)[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
-[1;32m    187[0m         [0;34m([0m[0mrepo[0m [0;34m/[0m [0;34m"logs"[0m[0;34m)[0m[0;34m.[0m[0mmkdir[0m[0;34m([0m[0mparents[0m[0;34m=[0m[0;32mTrue[0m[0;34m,[0m [0mexist_ok[0m[0;34m=[0m[0;32mTrue[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
-[0;32m--> 188[0;31m         [0mlog[0m [0;34m=[0m [0mopen[0m[0;34m([0m[0mlog_path[0m[0;34m([0m[0mrepo[0m[0;34m,[0m [0mstage[0m[0;34m)[0m[0;34m,[0m [0;34m"w"[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
-[0m[1;32m    189[0m         [0menv[0m [0;34m=[0m [0;34m{[0m[0;34m**[0m[0mos[0m[0;34m.[0m[0menviron[0m[0;34m,[0m [0;34m"DETACHED"[0m[0;34m:[0m [0;34m"0"[0m[0;34m}[0m[0;34m[0m[0;34m[0m[0m
-[1;32m    190[0m         proc = subprocess.Popen([sys.executable, runner], stdout=log, stderr=subprocess.STDOUT,
-[0;31mUnboundLocalError[0m: cannot access local variable 'log_path' where it is not associated with a value
+STAGE_LAUNCHED {"stage": "baseline", "pid": 1896}
+An exception has occurred, use %tb to see the full traceback.
+[0;31mSystemExit[0m[0;31m:[0m 0
+
+/usr/local/lib/python3.13/dist-packages/IPython/core/interactiveshell.py:3561: UserWarning: To exit: use 'exit', 'quit', or Ctrl-D.
+  warn("To exit: use 'exit', 'quit', or Ctrl-D.", stacklevel=1)
