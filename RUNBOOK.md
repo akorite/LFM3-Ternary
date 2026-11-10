@@ -104,6 +104,12 @@ network. Check with one trivial kernel before queueing a multi-hour one.
   single-pass run bit-for-bit
 - `py-spy dump --locals --pid $(pgrep -f run_catq)` names the exact layer,
   tensor, and epoch in flight when the log is silent between layer lines
+- known hazard: bf16 `tanh` saturates at exactly -1 for `d_alpha < ~-4`, which
+  zeroed `alpha_eff` and NaN'd a 6h rung at epoch 48/60 — fixed in `cb51066`,
+  kept here because the same pattern in any future modulation code will kill
+  hours just as silently
+- measured rate ~6.6 tensors/hour on A100 (layers 0-6 in ~1h35m): the MLPs
+  dominate; 153 tensors ≈ 23h of A100 per full rung at these settings
 
 ## When a host is unavailable
 
