@@ -340,9 +340,18 @@ def export(model_dir: Path, manifest_dir: Path | None, outfile: Path,
     return outfile
 
 
+def _require_checkpoint(model_dir: Path) -> None:
+    if not (model_dir / "config.json").is_file():
+        raise SystemExit(f"no config.json in {model_dir}; not an HF checkpoint")
+    if not list(model_dir.glob("*.safetensors")):
+        raise SystemExit(f"no .safetensors shard in {model_dir}")
+
+
 def census(model_dir: Path, manifest_dir: Path | None = None) -> dict:
     """Count the tensors each export dtype will receive, without loading data."""
     from safetensors import safe_open
+
+    _require_checkpoint(model_dir)
 
     ternary = set()
     if manifest_dir:
