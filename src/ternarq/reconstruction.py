@@ -8,6 +8,7 @@ block-level partial forwards; revisit if rung-1 evals underdeliver.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -17,6 +18,8 @@ import torch.nn.functional as F
 
 from .lfm3_adapter import decoder_layers, layer_tensor_name, quantizable_linears
 from .quantizer import CatqParams, ternarize_weight
+
+logger = logging.getLogger(__name__)
 
 
 class CatqReconstructor:
@@ -98,11 +101,16 @@ class CatqReconstructor:
     def run(self, batches: Iterable,
             forward_fn: Callable[[nn.Module, object], object]) -> dict:
         """Quantize every decoder layer in place; returns the ternary manifest."""
+        total = len(decoder_layers(self.model))
         for idx, layer in enumerate(decoder_layers(self.model)):
+            logger.info("layer %d/%d: capturing %d batches", idx + 1, total, len(batches)
+                        if hasattr(batches, "__len__") else -1)
             captured = self._capture(layer, batches, forward_fn)
             for name, linear in quantizable_linears(layer).items():
                 qual = layer_tensor_name(idx, name)
                 self.manifest["tensors"][qual] = self._fit_linear(qual, linear, captured[name])
+                logger.info("layer %d/%d: fit %s %s", idx + 1, total, qual,
+                            tuple(linear.weight.shape))
         return self.manifest
 
     def save_manifest(self, out_dir: str | Path) -> Path:
