@@ -63,3 +63,33 @@ def test_pipeline_skips_existing_outputs(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["run_pipeline.py", "--dry-run"])
     run_pipeline.main()
     assert json.loads(capsys.readouterr().out)["steps"] == ["rung1", "rung2", "rung3"]
+
+
+def test_pipeline_stops_at_kill_without_running_later_rungs(tmp_path, monkeypatch):
+    """A kill verdict must end the ladder and write the report, not try rung 2."""
+    import run_pipeline
+
+    (tmp_path / "results").mkdir()
+    (tmp_path / "data" / "calib").mkdir(parents=True)
+    (tmp_path / "data" / "calib" / "c4_512x2048.pt").write_text("x")
+    (tmp_path / "results" / "baseline.json").write_text("{}")
+    (tmp_path / "results" / "rung1.json").write_text("{}")
+    calls = []
+
+    def fake_run(cmd):
+        calls.append(cmd)
+        return 0
+
+    monkeypatch.setattr(run_pipeline, "REPO", tmp_path)
+    monkeypatch.setattr(run_pipeline, "run", fake_run)
+    monkeypatch.setattr(run_pipeline, "tier0", lambda *a, **k: "kill")
+    monkeypatch.setattr(sys, "argv", ["run_pipeline.py", "--skip-baseline"])
+    try:
+        run_pipeline.main()
+    except SystemExit as exc:
+        assert "killed at rung 1" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit")
+    assert ["scripts/report.py"] in [c[1:] for c in calls]
+    # rung 2 must never be attempted
+    assert not any("checkpoints/rung2" in " ".join(c) for c in calls)
