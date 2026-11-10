@@ -10,6 +10,13 @@ comes back to `results/` and `gguf/`.
 - Nothing else: the model (`LiquidAI/LFM3-1.7B`), C4, and the BFCLv3 dataset are
   public, and the VM clones this branch itself.
 
+**Pick the cheaper host per stage.** Kaggle's GPU hours are a separate, larger
+quota than Colab compute units, so prefer it for anything that fits a 12-hour
+kernel: calibration builds, a PTQ rung, evaluations, export. Keep Colab for a
+run that will exceed Kaggle's kernel limit or when Kaggle's queue is long — its
+session keeps a warm environment between stages. Waiting in a Kaggle queue costs
+no Colab compute units; an idle Colab session does.
+
 ## One stage at a time (Colab)
 
 ```bash
@@ -38,11 +45,12 @@ already exists, so a session that dies resumes by re-running the same command.
 `--stop-after gate|tier1|export|bench|report` decides how far past a passing gate
 to continue.
 
-## Kaggle instead of Colab
+## Kaggle (preferred for most stages)
 
 ```bash
 scripts/kaggle_stage.sh pipeline -- --stop-after export
-ACCELERATOR=NvidiaTeslaT4 scripts/kaggle_stage.sh baseline
+ACCELERATOR=NvidiaL4 scripts/kaggle_stage.sh baseline
+ACCELERATOR=NvidiaA100 TIMEOUT=720 scripts/kaggle_stage.sh rung1
 ```
 
 Each call pushes a private kernel that runs `scripts/remote_stage.py`, waits for
