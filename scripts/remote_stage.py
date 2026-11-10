@@ -212,10 +212,10 @@ def main() -> None:
             subprocess.run(pre, cwd=repo, check=True)
         log_dir = repo / "logs"
         log_dir.mkdir(exist_ok=True)
-        log_path = log_dir / f"{stage}.log"
+        stage_log = log_dir / f"{stage}.log"
         rc = 0
         lines: list[str] = []
-        with open(log_path, "w") as log:
+        with open(stage_log, "w") as log:
             proc = subprocess.Popen(cmd, cwd=repo, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, bufsize=1)
             for line in proc.stdout:
@@ -224,12 +224,12 @@ def main() -> None:
                 lines.append(line)
             rc = proc.wait()
         if rc != 0:
-            print("--- last lines of " + str(log_path) + " ---", flush=True)
+            print("--- last lines of " + str(stage_log) + " ---", flush=True)
             print("".join(lines[-40:]), flush=True)
         found = [a for a in ARTIFACTS[stage] if (repo / a).exists()]
         print("STAGE_RESULT " + json.dumps({"stage": stage, "returncode": rc,
-                                            "log": str(log_path.relative_to(repo)),
-                                            "artifacts": found + [str(log_path.relative_to(repo))]}),
+                                            "log": str(stage_log.relative_to(repo)),
+                                            "artifacts": found + [str(stage_log.relative_to(repo))]}),
               flush=True)
         raise SystemExit(rc)
 
