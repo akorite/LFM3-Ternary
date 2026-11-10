@@ -108,8 +108,9 @@ network. Check with one trivial kernel before queueing a multi-hour one.
   zeroed `alpha_eff` and NaN'd a 6h rung at epoch 48/60 — fixed in `cb51066`,
   kept here because the same pattern in any future modulation code will kill
   hours just as silently
-- measured rate ~6.6 tensors/hour on A100 (layers 0-6 in ~1h35m): the MLPs
-  dominate; 153 tensors ≈ 23h of A100 per full rung at these settings
+- measured per-tensor rate on A100 (rung1 log): conv 109s, attn ~110s,
+  feed_forward 150-300s => ~5.5-6h per 153-tensor rung, ~35-40 CU; the
+  resume point after the first interrupted attempt is layer 7
 
 ## When a host is unavailable
 

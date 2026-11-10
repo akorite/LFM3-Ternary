@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import shlex
 import subprocess
 import sys
@@ -154,6 +155,28 @@ def sync_repo(repo: Path, url: str, branch: str) -> str:
                           capture_output=True, text=True, check=True).stdout.strip()
 
 
+def seed_banked(repo: Path, stage: str) -> int:
+    """Copy tensors banked off-VM into the resume dir, before the stage runs.
+
+    Files land in BANKED_DIR (default /content/banked/<stage>/tensors) so the
+    upload never races the repo clone; anything already in the resume dir is
+    the newer write and is left alone."""
+    src = Path(os.environ.get("BANKED_DIR", f"/content/banked/{stage}/tensors"))
+    if not src.is_dir():
+        return 0
+    dst = repo / "checkpoints" / stage / "ternary" / "tensors"
+    dst.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for f in src.glob("*.pt"):
+        target = dst / f.name
+        if not target.exists():
+            shutil.copy2(f, target)
+            n += 1
+    if n:
+        print(f"seeded {n} banked tensors into {dst}", flush=True)
+    return n
+
+
 def install(repo: Path) -> None:
     # a marker keeps repeated stages from re-resolving the environment
     marker = repo / ".deps-installed"
@@ -206,6 +229,7 @@ def main() -> None:
             print(json.dumps(watch_state(repo, stage_args[0] if stage_args else "")), flush=True)
             raise SystemExit(0)
 
+        seed_banked(repo, stage)
         cmd = stage_command(stage, stage_args)
         print(json.dumps({"stage": stage, "head": head, "command": cmd}), flush=True)
         if os.environ.get("DETACHED") == "1":

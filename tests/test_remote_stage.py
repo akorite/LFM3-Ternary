@@ -93,3 +93,25 @@ def test_pipeline_stops_at_kill_without_running_later_rungs(tmp_path, monkeypatc
     assert ["scripts/report.py"] in [c[1:] for c in calls]
     # rung 2 must never be attempted
     assert not any("checkpoints/rung2" in " ".join(c) for c in calls)
+
+
+def test_seed_banked_copies_only_missing_tensors(tmp_path, monkeypatch):
+    src = tmp_path / "banked" / "rung1" / "tensors"
+    src.mkdir(parents=True)
+    (src / "a.pt").write_bytes(b"one")
+    (src / "b.pt").write_bytes(b"two")
+    repo = tmp_path / "repo"
+    existing = repo / "checkpoints" / "rung1" / "ternary" / "tensors"
+    existing.mkdir(parents=True)
+    (existing / "b.pt").write_bytes(b"newer")   # host copy must win
+    monkeypatch.setenv("BANKED_DIR", str(src))
+    import remote_stage
+    assert remote_stage.seed_banked(repo, "rung1") == 1
+    assert (existing / "a.pt").read_bytes() == b"one"
+    assert (existing / "b.pt").read_bytes() == b"newer"
+
+
+def test_seed_banked_noop_without_dir(tmp_path, monkeypatch):
+    monkeypatch.delenv("BANKED_DIR", raising=False)
+    import remote_stage
+    assert remote_stage.seed_banked(tmp_path / "repo", "rung1") == 0
