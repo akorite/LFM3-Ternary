@@ -93,6 +93,18 @@ phone-verified and `enable_internet` is honoured; unverified accounts get
 `Could not resolve host: github.com` and cannot run any stage. Colab always has
 network. Check with one trivial kernel before queueing a multi-hour one.
 
+## Measured cost (first run, A100)
+
+- baseline lm-eval (5 tasks, zero-shot): ~20 min on A100
+- rung 1 CAT-Q fit (512 × 2048 C4, 60 epochs, ~100 tensors): ~5.5–6 h on A100,
+  ~15 min per decoder layer, the 2048×7680 MLP linears dominating
+- session is billed ~6.7–10.6 CU/hr depending on sharing; budget a rung at ≥7 h
+- `checkpoints/<rung>/ternary/tensors/` lets a killed rung resume at the first
+  unfinished tensor — the resume path re-splices saved codes, weights match a
+  single-pass run bit-for-bit
+- `py-spy dump --locals --pid $(pgrep -f run_catq)` names the exact layer,
+  tensor, and epoch in flight when the log is silent between layer lines
+
 ## When a host is unavailable
 
 Both providers can refuse work without failing loudly: a Colab `new` can time
