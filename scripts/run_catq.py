@@ -116,6 +116,15 @@ def main() -> None:
             "reload_identical": same,
             "tensors": len(recon.manifest["tensors"])}
     (args.out / "rung.json").write_text(json.dumps(meta, indent=1))
+    record_path = Path("results/calibration.json")
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    record = json.loads(record_path.read_text()) if record_path.exists() else {}
+    record[f"rung:{args.out.name}"] = {
+        "corpus": str(args.calib), "batches": len(batches),
+        "sequences": len(batches) * args.batch_size,
+        "epochs": args.epochs, "group_size": args.group_size,
+    }
+    record_path.write_text(json.dumps(record, indent=1, sort_keys=True) + "\n")
     if not same:
         raise SystemExit("reloaded checkpoint differs from the quantized model")
     logger.info("reload identity verified")

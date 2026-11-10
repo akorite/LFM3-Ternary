@@ -104,6 +104,15 @@ def render(results: Path, plan: str) -> str:
                        f"(cross-runtime: {t.get('runtime')} vs {b.get('runtime')})")
     out.append("")
 
+    out += ["## Calibration", ""]
+    calib = _load(results / "calibration.json")
+    if calib is None:
+        out.append("Calibration corpora not recorded yet (`results/calibration.json` missing).")
+    else:
+        for name, info in calib.items():
+            out.append(f"- {name}: {info}")
+    out.append("")
+
     out += ["## Artifact", ""]
     size = _load(results / "artifact.json")
     if size is None:
