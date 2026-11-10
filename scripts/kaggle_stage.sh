@@ -37,7 +37,6 @@ json.dump({
     "enable_gpu": True,
     "enable_tpu": False,
     "enable_internet": True,
-    "machine_shape": "NvidiaTeslaT4" if accelerator == "NvidiaTeslaT4" else "None",
     "accelerator": accelerator,
     "timeout": int(timeout),
     "dataset_sources": [],
