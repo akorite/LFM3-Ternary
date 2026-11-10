@@ -49,6 +49,12 @@ ARGS_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")
 # starts the stage in its own session, so the exec returns in seconds and the
 # poll below watches the host-side log.
 colab upload -s "$SESSION" "$CTRL/remote_stage.py" /content/runner.py >/dev/null
+# Banked tensors let a resumed rung skip finished fits; push any we hold locally.
+for f in "$ROOT/checkpoints/$STAGE"/ternary/tensors/*.pt; do
+  [[ -f "$f" ]] || continue
+  colab upload -s "$SESSION" "$f" \
+    "/content/LFM3-Ternary/checkpoints/$STAGE/ternary/tensors/$(basename "$f")" >/dev/null
+done
 colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 120 \
   --env "STAGE=$STAGE" \
   --env "STAGE_ARGS=$ARGS_JSON" \
