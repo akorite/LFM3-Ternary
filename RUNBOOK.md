@@ -76,3 +76,11 @@ hours, so the QAT rung's resumable checkpoints matter there.
 `scripts/serve_check.sh` and `scripts/bench.sh` run wherever a llama.cpp build
 exists (the ternary kernels live in the PrismML fork); they take the GGUF and a
 `LLAMA_CLI` / llama-bench path, so run them on the VM after `export`.
+
+## When a host is unavailable
+
+Both providers can refuse work without failing loudly: a Colab `new` can time
+out on capacity, and a Kaggle kernel can sit `QUEUED` while the weekly GPU quota
+is exhausted. Neither is an error in the pipeline — the stages are idempotent,
+so retry the same command later. Do not switch to another path in the meantime:
+every stage resumes from the artifacts already on disk.
