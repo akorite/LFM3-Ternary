@@ -68,8 +68,8 @@ def main() -> None:
     p.add_argument("--delta0", type=float, default=0.5)
     p.add_argument("--lr", type=float, default=5e-3)
     p.add_argument("--batch-size", type=int, default=2)
-    p.add_argument("--max-batches", type=int, default=64,
-                   help="cap replay batches per layer pass (memory/time bound)")
+    p.add_argument("--max-batches", type=int, default=0,
+                   help="cap replay batches per layer pass; 0 replays the whole corpus")
     p.add_argument("--trust-remote-code", action="store_true", default=True)
     args = p.parse_args()
 
@@ -89,8 +89,9 @@ def main() -> None:
         return m(input_ids=batch.to(next(m.parameters()).device))
 
     batches = list(load_corpus(args.calib, 2048, args.batch_size,
-                               lambda t: tok(t, add_special_tokens=False)["input_ids"])
-                   )[: args.max_batches]
+                               lambda t: tok(t, add_special_tokens=False)["input_ids"]))
+    if args.max_batches:
+        batches = batches[: args.max_batches]
     if not batches:
         raise SystemExit(f"calibration corpus {args.calib} yielded no batches")
     logger.info("replaying %d calibration batches", len(batches))

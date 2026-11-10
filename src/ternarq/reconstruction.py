@@ -57,15 +57,16 @@ class CatqReconstructor:
         opt = torch.optim.AdamW(params.parameters(), lr=self.lr)
         epochs = self.epochs
         denom_w = w.detach()
-        with torch.no_grad():
-            targets = []
-            for x in inputs:
-                xf = x.reshape(-1, x.shape[-1]).to(w.device, w.dtype)
-                y = F.linear(xf, denom_w)
-                targets.append((xf, y, y.pow(2).mean().clamp_min(1e-8)))
         for epoch in range(epochs):
             t = epoch / max(epochs - 1, 1)
-            for xf, y, norm in targets:
+            for x in inputs:
+                xf = x.reshape(-1, x.shape[-1]).to(w.device, w.dtype)
+                # y is recomputed per epoch rather than cached: a 512-sample
+                # corpus holds ~20 GB of targets for w1/w3, which no 24GB card
+                # survives alongside the model.
+                with torch.no_grad():
+                    y = F.linear(xf, denom_w)
+                    norm = y.pow(2).mean().clamp_min(1e-8)
                 w_hat = ternarize_weight(denom_w, params, t)
                 loss = (F.linear(xf, w_hat) - y).pow(2).mean() / norm
                 opt.zero_grad()
