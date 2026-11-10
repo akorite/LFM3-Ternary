@@ -25,11 +25,19 @@ logger = logging.getLogger(__name__)
 class CatqReconstructor:
     def __init__(self, model: nn.Module, group_size: int = 128, gamma: float = 0.8,
                  s0: float = 30.0, delta0: float = 0.5, lr: float = 5e-3,
-                 epochs: int = 60):
+                 epochs: int = 60, resume_dir: str | Path | None = None):
         self.model = model
         self.group_size, self.gamma, self.s0, self.delta0 = group_size, gamma, s0, delta0
         self.lr, self.epochs = lr, epochs
+        self.resume_dir = Path(resume_dir) if resume_dir else None
         self.manifest: dict[str, dict] = {"group_size": group_size, "tensors": {}}
+        if self.resume_dir is not None and (self.resume_dir / "tensors").is_dir():
+            for f in sorted((self.resume_dir / "tensors").glob("*.pt")):
+                self.manifest["tensors"][f.stem] = torch.load(
+                    f, map_location="cpu", weights_only=True)
+            if self.manifest["tensors"]:
+                logger.info("resuming: %d tensors already fitted",
+                            len(self.manifest["tensors"]))
 
     @torch.no_grad()
     def _capture(self, layer: nn.Module, batches: Iterable,
@@ -108,10 +116,32 @@ class CatqReconstructor:
             captured = self._capture(layer, batches, forward_fn)
             for name, linear in quantizable_linears(layer).items():
                 qual = layer_tensor_name(idx, name)
-                self.manifest["tensors"][qual] = self._fit_linear(qual, linear, captured[name])
+                if qual in self.manifest["tensors"]:
+                    self._apply_saved(linear, self.manifest["tensors"][qual])
+                    continue
+                entry = self._fit_linear(qual, linear, captured[name])
+                self.manifest["tensors"][qual] = entry
+                self._persist(qual, entry)
                 logger.info("layer %d/%d: fit %s %s", idx + 1, total, qual,
                             tuple(linear.weight.shape))
         return self.manifest
+
+    def _apply_saved(self, linear: nn.Linear, entry: dict) -> None:
+        """Re-splice a previously fitted tensor's codes into the live weight."""
+        w = linear.weight
+        recon = (entry["codes"].float() * entry["alpha"].float()).reshape(w.shape)
+        with torch.no_grad():
+            w.copy_(recon.to(w.dtype))
+
+    def _persist(self, name: str, entry: dict) -> None:
+        """Drop one fitted tensor's codes on disk; survives a lost session."""
+        if self.resume_dir is None:
+            return
+        parts = self.resume_dir / "tensors"
+        parts.mkdir(parents=True, exist_ok=True)
+        tmp = parts / f"{name}.tmp"
+        torch.save(entry, tmp)
+        tmp.rename(parts / f"{name}.pt")
 
     def save_manifest(self, out_dir: str | Path) -> Path:
         out_dir = Path(out_dir)

@@ -125,3 +125,24 @@ def test_shared_input_copies_do_not_alias_across_allocations():
     c2 = copy(second)
     assert c2 is not c1
     assert c2.sum() == 0 and c1.sum() == 8
+
+
+def test_resume_skips_fitted_tensors_and_reproduces_weights(tmp_path):
+    """A killed run resumes at the first unfinished tensor, weights identical."""
+    model_a, model_b = ToyStack(), ToyStack()
+    model_b.load_state_dict(model_a.state_dict())
+    batches = _batches()
+    ra = CatqReconstructor(model_a, group_size=8, epochs=1, resume_dir=tmp_path)
+    ra.run(batches, lambda m, b: m(b))
+    weights_a = {n: p.detach().clone() for n, p in model_a.named_parameters()
+                 if "weight" in n}
+    rb = CatqReconstructor(model_b, group_size=8, epochs=1, resume_dir=tmp_path)
+    fitted = []
+    orig = rb._fit_linear
+    rb._fit_linear = lambda *a, **k: (fitted.append(1), orig(*a, **k))[1]
+    rb.run(batches, lambda m, b: m(b))
+    assert not fitted, "resume re-fitted tensors that were already on disk"
+    for n, w in weights_a.items():
+        assert torch.equal(model_b.get_parameter(n), w), n
+    # manifest survives too
+    assert rb.manifest["tensors"].keys() == ra.manifest["tensors"].keys()

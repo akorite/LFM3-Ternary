@@ -105,7 +105,8 @@ def main() -> None:
         raise SystemExit(f"calibration corpus {args.calib} yielded no batches")
     logger.info("replaying %d calibration batches", len(batches))
     recon = CatqReconstructor(model, args.group_size, args.gamma, args.s0,
-                              args.delta0, args.lr, args.epochs)
+                              args.delta0, args.lr, args.epochs,
+                              resume_dir=args.out / "ternary")
     recon.run(batches, forward)
 
     hf_dir = args.out / "hf"
