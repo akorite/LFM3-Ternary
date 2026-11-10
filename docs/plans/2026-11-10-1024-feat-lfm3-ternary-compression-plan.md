@@ -61,7 +61,7 @@ Ternary weight quantization promises a ~4.6× smaller model and ~3× decode spee
 
 ### Scope Boundaries
 
-- Embedding ternarization is out: tied embeddings/LM head stay BF16 (Bonsai quantizes them, BitTern does not; skipping them costs ~0.26 GB of the ~0.7 GB artifact).
+- Embedding ternarization is out: tied embeddings/LM head stay BF16 (Bonsai quantizes them, BitTern does not; keeping them costs ~0.52 GB of the ~0.9-1.0 GB artifact).
 - INT4/IQ2 comparisons, speculative decoding, and multimodal LFM3-VL are outside this product's identity.
 
 #### Deferred to Follow-Up Work
@@ -289,7 +289,7 @@ Tensor scope (owns R1/R2 mapping):
 
 - Exported GGUF loads and produces coherent text on a fixed prompt (integration).
 - Tensor census: every expected matrix is packed ternary, every BF16-scoped tensor is BF16 (R1/R2 boundary check).
-- File size lands near the predicted ~0.7-0.9 GB (sanity, not a gate).
+- File size lands near the predicted ~0.85-1.0 GB (sanity, not a gate).
 
 **Verification:** `llama-cli` (fork or stock, recorded which) generates; tensor census printed.
 
