@@ -71,6 +71,16 @@ def test_run_quantizes_all_linears_and_writes_manifest(tmp_path):
     assert set(loaded) == names
 
 
+def test_stored_codes_are_strictly_ternary():
+    """The STE identity can leak non-{-1,0,1} values in bf16; stored codes
+    must be exactly ternary or every downstream alpha is wrong."""
+    model = ToyStack()
+    recon = CatqReconstructor(model, group_size=8, epochs=2)
+    recon.run(_batches(), lambda m, b: m(b))
+    for name, e in recon.manifest["tensors"].items():
+        assert set(torch.unique(e["codes"]).tolist()) <= {-1, 0, 1}, name
+
+
 def test_second_layer_sees_quantized_first_layer():
     """Sliding property: layer 1's inputs change once layer 0 is ternarized."""
     model = ToyStack()

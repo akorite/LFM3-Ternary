@@ -82,6 +82,7 @@ class CatqReconstructor:
         params = CatqParams.for_weight(
             w, self.group_size, self.gamma, self.s0, self.delta0)
         opt = torch.optim.AdamW(params.parameters(), lr=self.lr)
+        skipped = 0
         epochs = self.epochs
         denom_w = w.detach()
         for epoch in range(epochs):
@@ -96,15 +97,30 @@ class CatqReconstructor:
                     norm = y.pow(2).mean().clamp_min(1e-8)
                 w_hat = ternarize_weight(denom_w, params, t)
                 loss = (F.linear(xf, w_hat) - y).pow(2).mean() / norm
+                if not torch.isfinite(loss):
+                    skipped += 1
+                    continue
                 opt.zero_grad()
                 loss.backward()
+                if not all(torch.isfinite(pp.grad).all()
+                           for pp in params.parameters() if pp.grad is not None):
+                    skipped += 1
+                    continue
                 opt.step()
-        recon, codes, alpha = ternarize_weight(denom_w, params, 1.0, return_parts=True)
+        if skipped:
+            logger.warning("%s: skipped %d non-finite optimizer steps", name, skipped)
         with torch.no_grad():
+            recon, codes, alpha = ternarize_weight(denom_w, params, 1.0, return_parts=True)
+            codes = codes.reshape(-1, codes.shape[-2], codes.shape[-1])
+            alpha = alpha.reshape(-1, alpha.shape[-2], alpha.shape[-1])
+            if not (torch.isfinite(alpha).all() and torch.isfinite(codes).all()):
+                raise RuntimeError(f"{name}: fit produced non-finite codes or alpha")
             w.copy_(recon)
         return {"shape": list(w.shape),
-                "codes": codes.reshape(-1, codes.shape[-2], codes.shape[-1]).to(torch.int8),
-                "alpha": alpha.reshape(-1, alpha.shape[-2], alpha.shape[-1]).float()}
+                # the STE identity can round a code off {-1,0,1} in bf16; the
+                # stored codes are the exact ternary values it approximates
+                "codes": codes.round().clamp(-1, 1).to(torch.int8),
+                "alpha": alpha.float()}
 
     def run(self, batches: Iterable,
             forward_fn: Callable[[nn.Module, object], object]) -> dict:
