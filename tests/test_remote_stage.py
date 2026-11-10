@@ -1,0 +1,65 @@
+"""Stage routing and the escalation ladder's decision points."""
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import remote_stage
+
+
+def test_every_stage_has_an_artifact_list():
+    for stage, artifacts in remote_stage.ARTIFACTS.items():
+        assert remote_stage.stage_command(stage, []), stage
+        assert isinstance(artifacts, list), stage
+    assert "baseline.json" in " ".join(remote_stage.ARTIFACTS["baseline"])
+
+
+def test_rung1_command_uses_the_c4_corpus_and_writes_one_layout():
+    cmd = remote_stage.stage_command("rung1", [])
+    joined = " ".join(cmd)
+    assert "data/calib/c4_512x2048.pt" in joined
+    assert "--out checkpoints/rung1" in joined
+
+
+def test_extra_args_pass_through_to_the_stage():
+    cmd = remote_stage.stage_command("rung2", ["--epochs", "2"])
+    assert cmd[-2:] == ["--epochs", "2"]
+
+
+def test_eval_stage_takes_model_and_output():
+    cmd = remote_stage.stage_command("eval", ["checkpoints/rung1/hf", "results/x.json"])
+    assert cmd[-2:] == ["checkpoints/rung1/hf", "results/x.json"]
+
+
+def test_unknown_stage_is_rejected():
+    try:
+        remote_stage.stage_command("nope", [])
+    except SystemExit as exc:
+        assert "unknown stage" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit")
+
+
+def test_pipeline_dry_run_lists_the_ladder(tmp_path, monkeypatch, capsys):
+    import run_pipeline
+
+    monkeypatch.setattr(run_pipeline, "REPO", tmp_path)
+    monkeypatch.setattr(sys, "argv",
+                        ["run_pipeline.py", "--dry-run", "--skip-baseline"])
+    run_pipeline.main()
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["steps"] == ["c4", "rung1", "rung2", "rung3"]
+
+
+def test_pipeline_skips_existing_outputs(tmp_path, monkeypatch, capsys):
+    import run_pipeline
+
+    (tmp_path / "results").mkdir()
+    (tmp_path / "data" / "calib").mkdir(parents=True)
+    (tmp_path / "data" / "calib" / "c4_512x2048.pt").write_text("x")
+    (tmp_path / "results" / "baseline.json").write_text("{}")
+    monkeypatch.setattr(run_pipeline, "REPO", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["run_pipeline.py", "--dry-run"])
+    run_pipeline.main()
+    assert json.loads(capsys.readouterr().out)["steps"] == ["rung1", "rung2", "rung3"]

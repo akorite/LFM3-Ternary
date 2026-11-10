@@ -1,0 +1,70 @@
+# Runbook: LFM3 ternary compression on remote GPUs
+
+All training and inference runs through the Colab CLI or the Kaggle CLI. There
+is no notebook path: a stage is a command, its inputs are files, and its output
+comes back to `results/` and `gguf/`.
+
+## Inputs
+
+- `colab` (authenticated) or `kaggle` (token in `~/.kaggle`), plus a GPU quota.
+- Nothing else: the model (`LiquidAI/LFM3-1.7B`), C4, and the BFCLv3 dataset are
+  public, and the VM clones this branch itself.
+
+## One stage at a time (Colab)
+
+```bash
+scripts/colab_stage.sh --new --gpu A100 baseline    # -> results/baseline.json
+scripts/colab_stage.sh c4                           # -> data/calib/c4_512x2048.pt
+scripts/colab_stage.sh rung1                        # -> checkpoints/rung1/{hf,ternary}
+scripts/colab_stage.sh eval -- checkpoints/rung1/hf results/rung1.json
+scripts/colab_stage.sh export -- checkpoints/rung1/hf checkpoints/rung1/ternary
+scripts/colab_stage.sh report                       # -> REPORT.md
+```
+
+`--new` recreates the session at the requested accelerator; without it the named
+session is reused (`SESSION=...`). `TIMEOUT` bounds each call, `SYNC_DOWN=0`
+leaves artifacts on the VM.
+
+## The whole ladder, unattended
+
+```bash
+scripts/colab_stage.sh --new --gpu A100 pipeline -- --stop-after export
+```
+
+`scripts/run_pipeline.py` runs the baseline, then each rung, evaluating and gating
+after every rung. It stops at `kill`, passes a surviving rung to tier-1 (BFCLv3),
+then exports and writes the report. Every step is skipped when its output
+already exists, so a session that dies resumes by re-running the same command.
+`--stop-after gate|tier1|export|bench|report` decides how far past a passing gate
+to continue.
+
+## Kaggle instead of Colab
+
+```bash
+scripts/kaggle_stage.sh pipeline -- --stop-after export
+ACCELERATOR=NvidiaTeslaT4 scripts/kaggle_stage.sh baseline
+```
+
+Each call pushes a private kernel that runs `scripts/remote_stage.py`, waits for
+it, and copies `results/` and `REPORT.md` back. Kaggle caps kernel runtime at 12
+hours, so the QAT rung's resumable checkpoints matter there.
+
+## Stage reference
+
+| Stage | Runs | Writes |
+|---|---|---|
+| `baseline` | `scripts/eval_lm_eval.sh` on BF16 | `results/baseline.json` |
+| `c4` | `scripts/build_calib_c4.py` | `data/calib/c4_512x2048.pt` |
+| `ayot` | `scripts/build_calib_ayot.py` | `data/calib/ayot/` |
+| `rung1` / `rung2` | `scripts/run_catq.py` | `checkpoints/rungN/{hf,ternary}` |
+| `qat` | `scripts/train_qat.py` from rung 2 | `checkpoints/rung3/{hf,ternary}` |
+| `eval` | lm-eval on a checkpoint | `results/<name>.json` |
+| `bfcl` | BFCLv3 baseline or artifact | `results/bfcl.json` |
+| `export` | `scripts/export_gguf.py` | `gguf/LFM3-1.7B-ternary-pq2_0.gguf` |
+| `census` | tensor dtype audit | stdout |
+| `report` | `scripts/report.py` | `REPORT.md` |
+| `pipeline` | the ladder above | all of the above |
+
+`scripts/serve_check.sh` and `scripts/bench.sh` run wherever a llama.cpp build
+exists (the ternary kernels live in the PrismML fork); they take the GGUF and a
+`LLAMA_CLI` / llama-bench path, so run them on the VM after `export`.
