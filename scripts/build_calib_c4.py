@@ -51,9 +51,9 @@ def main():
                    help="documents to materialize from the first C4/en train shard")
     args = p.parse_args()
 
-    from datasets import load_dataset  # lazy: heavy dep
-    from transformers import AutoTokenizer  # lazy: heavy dep
-    import torch  # lazy: heavy dep
+    from datasets import load_dataset
+    from transformers import AutoTokenizer
+    import torch
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     stream = load_dataset(

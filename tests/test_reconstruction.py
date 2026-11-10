@@ -51,7 +51,6 @@ def test_run_quantizes_all_linears_and_writes_manifest(tmp_path):
         assert torch.allclose(mod.weight, expect, atol=1e-5), qual
         assert set(codes.unique().tolist()) <= {-1.0, 0.0, 1.0}
 
-    # BF16-scoped tensors untouched (bit-identical)
     for n, p in model.named_parameters():
         if n not in {f"{q}.weight" for q in names}:
             assert torch.equal(p, before[n]), n
@@ -63,18 +62,27 @@ def test_run_quantizes_all_linears_and_writes_manifest(tmp_path):
 
 
 def test_second_layer_sees_quantized_first_layer():
-    """Sliding property: layer-1 inputs change once layer 0 is ternarized."""
+    """Sliding property: layer 1's inputs change once layer 0 is ternarized."""
     model = ToyStack()
     batches = _batches()
-    probe = CatqReconstructor(model, group_size=8, epochs=1)
+    seen = []
 
-    layer1 = model.model.layers[1]
-    cap_before = probe._capture(layer1, batches, lambda m, b: m(b))
+    def record_w1(_m, args):
+        seen.append(args[0].detach().clone())
 
-    # ternarize layer 0's linears directly (small group size => real ternary)
-    for name, lin in quantizable_linears(model.model.layers[0]).items():
-        probe._fit_linear(name, lin, probe._capture(model.model.layers[0], batches, lambda m, b: m(b))[name])
-
-    cap_after = probe._capture(layer1, batches, lambda m, b: m(b))
-    assert any(not torch.equal(a, b)
-               for a, b in zip(cap_before["feed_forward.w1"], cap_after["feed_forward.w1"]))
+    hook = model.model.layers[1].feed_forward.w1.register_forward_pre_hook(record_w1)
+    try:
+        with torch.no_grad():   # baseline: layer 0 still BF16
+            for batch in batches:
+                model(batch)
+        before = torch.cat([c.reshape(-1, c.shape[-1]) for c in seen])
+        seen.clear()
+        CatqReconstructor(model, group_size=8, epochs=1).run(batches, lambda m, b: m(b))
+        seen.clear()
+        with torch.no_grad():   # layer 0 now holds ternary weights
+            for batch in batches:
+                model(batch)
+    finally:
+        hook.remove()
+    after = torch.cat([c.reshape(-1, c.shape[-1]) for c in seen])
+    assert not torch.equal(before, after)

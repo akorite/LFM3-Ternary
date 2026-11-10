@@ -104,7 +104,7 @@ def build_triplets(questions, generate, count_tokens, out_dir,
 
 def iter_eval_prompts(bfcl_file=None):
     """Yield every prompt text from the five tier-0 eval sets and BFCLv3."""
-    from datasets import load_dataset  # lazy
+    from datasets import load_dataset
 
     for name, fields in EVAL_DATASETS.items():
         ds = load_dataset(name)
@@ -124,7 +124,7 @@ def iter_eval_prompts(bfcl_file=None):
 
 
 def _load_questions(seed):
-    from datasets import load_dataset  # lazy
+    from datasets import load_dataset
 
     sources = {}
     for domain, (hf_id, field) in QUESTION_SOURCES.items():
@@ -134,8 +134,8 @@ def _load_questions(seed):
 
 
 def _load_model(model_id):
-    import torch  # lazy
-    from transformers import AutoModelForCausalLM, AutoTokenizer  # lazy
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     tok.pad_token = tok.eos_token
@@ -147,7 +147,7 @@ def _load_model(model_id):
 
 
 def _make_generate(model, tok, max_new_tokens):
-    import torch  # lazy
+    import torch
 
     def generate(question):
         ids = tok(question, return_tensors="pt").to(model.device)

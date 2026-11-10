@@ -34,11 +34,9 @@ LLAMA_FTYPE_MOSTLY_Q2_0 = 41  # fork's file-type id
 
 FLOAT_DTYPES = {"f16": "F16", "bf16": "BF16", "f32": "F32"}
 
-# HF name (sans .weight) -> GGUF name template; layer-id substituted per block.
 LFM3_TENSOR_MAP = {
     "model.embed_tokens": "token_embd",
     "model.embedding_norm": "output_norm",
-    "rope_freqs": "rope_freqs",
 }
 ATTN_MAP = {
     "self_attn.q_proj": "attn_q", "self_attn.k_proj": "attn_k",
@@ -87,15 +85,7 @@ def pack_q2_0(codes: np.ndarray, scales: np.ndarray) -> np.ndarray:
     return np.concatenate([d, qs], -1).reshape(*lead, out_f, in_f // QK2_0 * BLOCK_BYTES)
 
 
-def unpack_q2_0(blocks: np.ndarray, shape) -> np.ndarray:
-    raw = np.ascontiguousarray(blocks).reshape(-1, BLOCK_BYTES)
-    d = raw[:, :2].copy().view(np.float16).astype(np.float32)
-    shifted = raw[:, 2:].reshape(raw.shape[0], -1, 1) >> np.array([0, 2, 4, 6], np.uint8).reshape(1, 1, 4)
-    codes = (shifted & 0x03).reshape(raw.shape[0], QK2_0).astype(np.int8) - np.int8(1)
-    return (codes.astype(np.float32) * d).reshape(shape)
-
-
-def gguf_name(hf_name: str, layer_types: list[str]) -> str:
+def gguf_name(hf_name: str) -> str:
     """HF tensor name (with .weight) -> GGUF tensor name, or '' to skip."""
     name = hf_name.removesuffix(".weight")
     if name == "lm_head":  # tied to embed_tokens; no separate tensor
@@ -129,9 +119,14 @@ def load_hf_tensors(model_dir: Path) -> dict[str, np.ndarray]:
     return out
 
 
+def _is_f32(name: str, shape) -> bool:
+    """Norms, the depthwise conv kernel and every 1-D tensor stay float32."""
+    return "norm" in name or len(shape) <= 1 or "shortconv.conv" in name
+
+
 def _float_tensor(tensor: np.ndarray, dtype: str):
     import gguf
-    if dtype == "F32" or tensor.ndim <= 1:
+    if dtype == "F32":
         return tensor.astype(np.float32), gguf.GGMLQuantizationType.F32
     if dtype == "BF16":
         t = tensor.astype(np.float32).view(np.uint32)
@@ -189,10 +184,9 @@ def set_vocab(writer, model_dir: Path, vocab_size: int):
 def export(model_dir: Path, manifest_dir: Path | None, outfile: Path,
            float_type: str = "f16") -> Path:
     import gguf
-    import torch  # only to read the .pt codes file
+    import torch
     config = json.loads((model_dir / "config.json").read_text())
     layer_types = config["layer_types"]
-    hp = config
 
     packed = {}
     if manifest_dir:
@@ -206,32 +200,32 @@ def export(model_dir: Path, manifest_dir: Path | None, outfile: Path,
     writer = gguf.GGUFWriter(path=None, arch="lfm3", use_temp_file=True)
 
     # parameters — mirrored from the official LFM3 GGUF conversion
-    writer.add_block_count(hp["num_hidden_layers"])
-    writer.add_context_length(hp["max_position_embeddings"])
-    writer.add_embedding_length(hp["hidden_size"])
-    writer.add_feed_forward_length(hp["intermediate_size"])
-    writer.add_head_count(hp["num_attention_heads"])
-    n_kv = hp["num_key_value_heads"]
+    writer.add_block_count(config["num_hidden_layers"])
+    writer.add_context_length(config["max_position_embeddings"])
+    writer.add_embedding_length(config["hidden_size"])
+    writer.add_feed_forward_length(config["intermediate_size"])
+    writer.add_head_count(config["num_attention_heads"])
+    n_kv = config["num_key_value_heads"]
     writer.add_head_count_kv([n_kv if lt != "conv" else 0 for lt in layer_types])
-    writer.add_key_length(hp["head_dim"])
-    writer.add_value_length(hp["head_dim"])
-    writer.add_rope_dimension_count(hp["head_dim"])
+    writer.add_key_length(config["head_dim"])
+    writer.add_value_length(config["head_dim"])
+    writer.add_rope_dimension_count(config["head_dim"])
     writer.add_sliding_window_pattern([lt == "sliding_attention" for lt in layer_types])
-    writer.add_sliding_window(hp["sliding_window"])
-    writer.add_shortconv_l_cache(hp["conv_L_cache"])
-    rope = hp["rope_parameters"]
+    writer.add_sliding_window(config["sliding_window"])
+    writer.add_shortconv_l_cache(config["conv_L_cache"])
+    rope = config["rope_parameters"]
     writer.add_rope_freq_base(rope["full_attention"]["rope_theta"])
     writer.add_rope_freq_base_swa(rope["sliding_attention"]["rope_theta"])
-    writer.add_layer_norm_rms_eps(hp["norm_eps"])
+    writer.add_layer_norm_rms_eps(config["norm_eps"])
     writer.add_file_type(LLAMA_FTYPE_MOSTLY_Q2_0)
     writer.add_type(gguf.GGUFType.MODEL)
 
-    set_vocab(writer, model_dir, hp["vocab_size"])
+    set_vocab(writer, model_dir, config["vocab_size"])
 
     tensors = load_hf_tensors(model_dir)
     n_ternary = 0
     for hf_name, tensor in sorted(tensors.items()):
-        name = gguf_name(hf_name, layer_types)
+        name = gguf_name(hf_name)
         if name == "":
             continue
         if hf_name in packed:
@@ -240,13 +234,11 @@ def export(model_dir: Path, manifest_dir: Path | None, outfile: Path,
             continue
         if "shortconv.conv" in name and tensor.ndim == 3:
             tensor = tensor.squeeze(1)  # depthwise conv stored 2-D in GGUF
-        data, dtype = _float_tensor(tensor, "F32" if ("norm" in name or tensor.ndim <= 1
-                                                      or "shortconv.conv" in name) else float_type)
+        data, dtype = _float_tensor(tensor, "F32" if _is_f32(name, tensor.shape) else float_type)
         writer.add_tensor(name, data, raw_dtype=dtype)
 
-    # generated tensor: partial-rope mask
     writer.add_tensor("rope_freqs.weight",
-                      rope_freqs(hp["head_dim"], rope["full_attention"].get("partial_rotary_factor", 1.0)),
+                      rope_freqs(config["head_dim"], rope["full_attention"].get("partial_rotary_factor", 1.0)),
                       raw_dtype=gguf.GGMLQuantizationType.F32)
 
     if packed:
@@ -261,23 +253,28 @@ def export(model_dir: Path, manifest_dir: Path | None, outfile: Path,
 
 
 def census(model_dir: Path, manifest_dir: Path | None = None) -> dict:
-    """Per-dtype tensor census + predicted size — the R1/R2 scope check."""
-    config = json.loads((model_dir / "config.json").read_text())
-    layer_types = config["layer_types"]
-    tensors = load_hf_tensors(model_dir)
+    """Count the tensors each export dtype will receive, without loading data."""
+    from safetensors import safe_open
+
     ternary = set()
     if manifest_dir:
         ternary = {k + ".weight" for k in
                    json.loads((manifest_dir / "ternary_manifest.json").read_text())["tensors"]}
     counts: dict[str, int] = {}
-    for hf in tensors:
-        name = gguf_name(hf, layer_types)
-        if name == "":
-            continue
-        kind = "ternary" if hf in ternary else (
-            "f32" if ("norm" in name or tensors[hf].ndim <= 1 or "shortconv.conv" in name) else "float")
-        counts[kind] = counts.get(kind, 0) + 1
-    counts["rope_freqs(f32)"] = 1
+    for f in sorted(model_dir.glob("*.safetensors")):
+        with safe_open(str(f), framework="numpy") as h:
+            for hf in h.keys():
+                name = gguf_name(hf)
+                if name == "":
+                    continue
+                if hf in ternary:
+                    kind = "ternary"
+                elif _is_f32(name, h.get_slice(hf).get_shape()):
+                    kind = "f32"
+                else:
+                    kind = "float"
+                counts[kind] = counts.get(kind, 0) + 1
+    counts["f32"] = counts.get("f32", 0) + 1  # the generated rope_freqs mask
     return counts
 
 

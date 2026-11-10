@@ -21,6 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 logger = logging.getLogger("run_catq")
 
 
+def load_token_tensor(path: Path):
+    """Load a saved int token tensor, tolerating a plain list."""
+    import torch
+    data = torch.load(path, map_location="cpu", weights_only=True)
+    return data if torch.is_tensor(data) else torch.tensor(data, dtype=torch.int32)
+
+
 def load_corpus(path: Path, seq_len: int, batch_size: int, encode=None):
     """Yield [batch, seq] token batches.
 
@@ -42,8 +49,7 @@ def load_corpus(path: Path, seq_len: int, batch_size: int, encode=None):
                 ids.extend(encode(f"{t['question']}\n{t['trace']}\n{t['answer']}"))
         data = torch.tensor(ids, dtype=torch.int32)
     else:
-        data = torch.load(path, map_location="cpu", weights_only=True)
-        data = data if torch.is_tensor(data) else torch.tensor(data, dtype=torch.int32)
+        data = load_token_tensor(path)
     if data.ndim == 1:
         data = data[: data.numel() // seq_len * seq_len].reshape(-1, seq_len)
     for start in range(0, data.shape[0], batch_size):
@@ -96,7 +102,6 @@ def main() -> None:
     manifest = recon.save_manifest(args.out / "ternary")
     logger.info("wrote checkpoint %s and manifest %s", args.out, manifest)
 
-    # reload identity: the spliced weights must reload bit-identically
     reloaded = AutoModelForCausalLM.from_pretrained(
         args.out, trust_remote_code=True, torch_dtype=torch.bfloat16)
     same = all(torch.equal(a, b) for a, b in

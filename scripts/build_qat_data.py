@@ -13,7 +13,6 @@ import itertools
 import json
 from pathlib import Path
 
-# Rough mix; the exact documents depend on the stream, the volume does not.
 SOURCES = [
     ("allenai/c4", "en", "en/c4-train.00000-of-01024.json.gz", "text", 0.7),
     ("meta-math/MetaMathQA", None, None, "query", 0.15),
@@ -22,19 +21,29 @@ SOURCES = [
 
 
 def build_corpus(streams, encode, target_tokens: int, seed: int = 2):
-    """Interleave `streams` ([{weight, docs}]) until `target_tokens` is reached."""
+    """Draw documents from `streams` [(weight, iterator)] until `target_tokens`.
+
+    Each draw picks a source in proportion to its weight, so the mix is the one
+    the weights describe rather than a uniform pool.
+    """
+    import array
     import random
     rng = random.Random(seed)
-    docs = []
-    for weight, docs_iter in streams:
-        docs.extend([(weight, d) for d in docs_iter])
-    ids: list[int] = []
+    iters = [iter(docs) for _, docs in streams]
+    weights = [w for w, _ in streams]
+    ids = array.array("i")   # 102M ints as a list would cost ~3.7 GB
     while len(ids) < target_tokens:
-        if not docs:
+        if not iters:
             raise RuntimeError(f"sources exhausted at {len(ids)}/{target_tokens} tokens")
-        _, text = docs[rng.randrange(len(docs))]
+        i = rng.choices(range(len(iters)), weights)[0]
+        try:
+            text = next(iters[i])
+        except StopIteration:
+            iters.pop(i)
+            weights.pop(i)
+            continue
         ids.extend(encode(text))
-    return ids[:target_tokens]
+    return ids
 
 
 def main() -> None:

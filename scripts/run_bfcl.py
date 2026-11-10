@@ -36,6 +36,11 @@ AST_CATEGORIES = [
     "multi_turn_base", "multi_turn_composite", "multi_turn_long_context",
     "multi_turn_miss_func", "multi_turn_miss_param",
 ]
+# every dataset split the shell fetches: AST-scored plus the exec-backed ones
+ALL_CATEGORIES = AST_CATEGORIES + [
+    "exec_simple", "exec_multiple", "exec_parallel", "exec_parallel_multiple",
+    "rest", "sql", "chatable",
+]
 EXEC_CATEGORIES = [
     "exec_simple", "exec_multiple", "exec_parallel", "exec_parallel_multiple",
     "rest", "sql", "chatable",
@@ -188,8 +193,7 @@ def decode_model_output(text, func_docs):
     if calls is not None:
         return calls
 
-    # last resort: one call per line
-    calls = []
+        calls = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -419,7 +423,8 @@ def parallel_no_order(func_descriptions, model_calls, possible_answers):
 
 
 def ast_score(category, func_descriptions, model_calls, possible_answers):
-    """Dispatch on test_category exactly as bfcl_eval ast_checker does."""
+    """Dispatch on test_category as bfcl_eval does; its multiple-call branch
+    validates only the first call after the count check."""
     if "parallel" in category:
         return parallel_no_order(func_descriptions, model_calls, possible_answers)
     if "multiple" in category:
@@ -464,7 +469,7 @@ def _build_prompt(tokenizer, messages, tools):
 
 
 def load_model(model_path):
-    import torch  # noqa: F401  (lazy: keeps --help and tests CPU-free)
+    import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
@@ -501,7 +506,7 @@ def evaluate_entry(cat, entry, answers, func_docs, tokenizer, model, max_new, te
     tools = entry.get("function") or multi_turn_docs(entry, func_docs)
 
     if cat == "chatable":
-        return None  # not scored
+        return None
 
     gt = answers.get(eid)
 
@@ -529,7 +534,6 @@ def evaluate_entry(cat, entry, answers, func_docs, tokenizer, model, max_new, te
                 all_ok = False
         return all_ok
 
-    # single-turn
     messages = entry["question"][0]
     reply = generate_reply(tokenizer, model, messages, tools, max_new, temp)
     calls = decode_model_output(reply, tools)
@@ -623,7 +627,10 @@ def main():
     if skip:
         print(f"note: {skip} need the official bfcl_eval execution backend; "
               "use eval_bfcl.sh's harness paths for those", file=sys.stderr)
-    run_eval(args.model, args.bfcl_data, args.categories, args.out,
+    categories = [c for c in args.categories if c not in EXEC_CATEGORIES]
+    if not categories:
+        parser.error("every requested category needs the execution backend")
+    run_eval(args.model, args.bfcl_data, categories, args.out,
              args.role, args.max_new_tokens, args.temperature, args.limit)
 
 

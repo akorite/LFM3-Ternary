@@ -74,3 +74,17 @@ def test_token_band_rejects_under_target():
     with pytest.raises(ValueError):
         ayot.assert_token_band(4_500_001)
     ayot.assert_token_band(4_000_000)
+
+
+def test_imports_stay_light():
+    """Heavy deps load lazily, so `pytest` and `--help` run on a CPU-only box."""
+    import subprocess
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]);"
+         "import build_calib_c4, build_calib_ayot;"
+         "heavy = {'datasets', 'transformers', 'torch'} & set(sys.modules);"
+         "assert not heavy, heavy",
+         str(Path(__file__).resolve().parents[1] / "scripts")],
+        capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr

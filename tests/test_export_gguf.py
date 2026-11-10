@@ -7,13 +7,12 @@ import pytest
 import torch
 
 from export_gguf import (
-    GGML_TYPE_Q2_0,
+    BLOCK_BYTES,
     census,
     export,
     gguf_name,
     pack_q2_0,
     rope_freqs,
-    unpack_q2_0,
 )
 
 LAYER_TYPES = ["conv", "conv", "full_attention", "conv", "sliding_attention", "conv"]
@@ -109,40 +108,47 @@ def _manifest(tmp_path):
     return m
 
 
-def test_pack_unpack_roundtrip():
+def test_pack_q2_0_pins_the_external_block_layout():
+    """Bytes must match the fork's dequantize: y[j] = (q-1)*d, 2 bits per weight."""
+    codes = np.zeros((1, 128), np.int8)
+    codes[0, :4] = [-1, 0, 1, -1]
+    codes[0, 4:] = 1
+    alpha = np.array([[0.5]], np.float32)
+    block = pack_q2_0(codes, alpha)
+    assert block.shape == (1, BLOCK_BYTES)
+    assert bytes(block[0, :2]) == struct.pack("<e", 0.5)   # fp16 scale, little endian
+    # levels (code+1) = 0,1,2,0 packed 2 bits each, low bits first -> 0b00_10_01_00
+    assert block[0, 2] == 0b00100100
+    assert (block[0, 3:] == 0b10101010).all()               # levels 2 (+1) repeated
+
+
+def test_pack_shape_and_scale_count():
     rng = np.random.RandomState(0)
     codes = rng.randint(-1, 2, (4, 256)).astype(np.int8)
     alpha = (rng.rand(4, 2, 1) + 0.5).astype(np.float32)
     packed = pack_q2_0(codes, alpha)
-    assert packed.shape == (4, 2 * 34)
-    back = unpack_q2_0(packed, codes.shape)
-    # fp16 scale rounding: codes survive exactly, scales within fp16 eps
-    g = back.reshape(4, 2, 128)
-    a16 = alpha.astype(np.float16).astype(np.float32)
-    ratio = np.where(a16 != 0, g / a16, 0)
-    assert np.allclose(ratio, codes.reshape(4, 2, 128), atol=1e-2)
+    assert packed.shape == (4, 2 * BLOCK_BYTES)
 
 
 def test_pack_rejects_bad_inputs():
     with pytest.raises(ValueError):
-        pack_q2_0(np.zeros((4, 100), np.int8), np.zeros(4))          # in % 128
+        pack_q2_0(np.zeros((4, 100), np.int8), np.zeros(4))
     with pytest.raises(ValueError):
-        pack_q2_0(np.full((1, 128), 2, np.int8), np.ones(1))          # code out of range
+        pack_q2_0(np.full((1, 128), 2, np.int8), np.ones(1))
     with pytest.raises(ValueError):
-        pack_q2_0(np.zeros((1, 128), np.int8), np.ones(3))            # scale count
-
+        pack_q2_0(np.zeros((1, 128), np.int8), np.ones(3))
 
 def test_gguf_name_map():
-    assert gguf_name("model.layers.0.conv.in_proj.weight", LAYER_TYPES) == "blk.0.shortconv.in_proj.weight"
-    assert gguf_name("model.layers.2.self_attn.gate_proj.weight", LAYER_TYPES) == "blk.2.attn_gate.weight"
-    assert gguf_name("model.layers.2.self_attn.q_norm.weight", LAYER_TYPES) == "blk.2.attn_q_norm.weight"
-    assert gguf_name("model.layers.4.post_ffn_norm.weight", LAYER_TYPES) == "blk.4.post_ffw_norm.weight"
-    assert gguf_name("model.layers.0.operator_norm.weight", LAYER_TYPES) == "blk.0.attn_norm.weight"
-    assert gguf_name("model.embed_tokens.weight", LAYER_TYPES) == "token_embd.weight"
-    assert gguf_name("model.embedding_norm.weight", LAYER_TYPES) == "output_norm.weight"
-    assert gguf_name("lm_head.weight", LAYER_TYPES) == ""  # tied -> skipped
+    assert gguf_name("model.layers.0.conv.in_proj.weight") == "blk.0.shortconv.in_proj.weight"
+    assert gguf_name("model.layers.2.self_attn.gate_proj.weight") == "blk.2.attn_gate.weight"
+    assert gguf_name("model.layers.2.self_attn.q_norm.weight") == "blk.2.attn_q_norm.weight"
+    assert gguf_name("model.layers.4.post_ffn_norm.weight") == "blk.4.post_ffw_norm.weight"
+    assert gguf_name("model.layers.0.operator_norm.weight") == "blk.0.attn_norm.weight"
+    assert gguf_name("model.embed_tokens.weight") == "token_embd.weight"
+    assert gguf_name("model.embedding_norm.weight") == "output_norm.weight"
+    assert gguf_name("lm_head.weight") == ""  # tied -> skipped
     with pytest.raises(ValueError):
-        gguf_name("model.layers.0.unknown.weight", LAYER_TYPES)
+        gguf_name("model.layers.0.unknown.weight")
 
 
 def test_rope_freqs_mask():
@@ -155,13 +161,10 @@ def test_census(tmp_path):
     ck = _fake_checkpoint(tmp_path)
     m = _manifest(tmp_path)
     c = census(ck, m)
-    # 2 attn layers * (5 attn + 3 mlp) + 4 conv layers * (2 conv + 3 mlp) = 36
     assert c["ternary"] == 36
     assert c.get("f32", 0) > 0  # norms + conv kernels + 1-d
-    # no unmapped tensor exploded
     n_float = c.get("float", 0) + c.get("f32", 0)
-    total = n_float + c["ternary"] + 1  # +rope_freqs
-    assert total == 6 * 7 + 2 * 7 + 4 * 3 + 2 + 1
+    assert n_float + c["ternary"] == 6 * 7 + 2 * 7 + 4 * 3 + 2 + 1
 
 
 def _read_gguf_header(path):
@@ -220,12 +223,9 @@ def test_export_writes_valid_gguf(tmp_path):
     assert kvs["lfm3.shortconv.l_cache"] == 7
     assert kvs["tokenizer.ggml.pre"] == "lfm2"
     assert kvs["tokenizer.ggml.bos_token_id"] == 120
-    # rope_freqs written from the partial-rotary mask, not the checkpoint
     assert "rope_freqs.weight" in names
-    # tied lm_head absent; embed + norms present
     assert "token_embd.weight" in names and "output.weight" not in names
     assert "output_norm.weight" in names
-    # every expected tensor present, none missing
     expected = {"token_embd.weight", "output_norm.weight", "rope_freqs.weight"}
     for i, lt in enumerate(LAYER_TYPES):
         b = f"blk.{i}"

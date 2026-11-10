@@ -14,8 +14,9 @@ ATTENTION_LINEARS = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj")
 CONV_LINEARS = ("in_proj", "out_proj")
 MLP_LINEARS = ("w1", "w2", "w3")
 
-# norms/embedding/head/conv-kernel names never appear here, so BF16 scope is
-# enforced structurally; tie_word_embeddings keeps lm_head the same storage.
+_BLOCK = {"attention": ("self_attn", ATTENTION_LINEARS),
+          "conv": ("conv", CONV_LINEARS)}
+
 
 
 def block_kind(layer: nn.Module) -> str:
@@ -29,10 +30,8 @@ def block_kind(layer: nn.Module) -> str:
 def quantizable_linears(layer: nn.Module) -> dict[str, nn.Linear]:
     """name -> nn.Linear for every ternary-scoped matmul in one decoder layer."""
     out: dict[str, nn.Linear] = {}
-    kind = block_kind(layer)
-    op = layer.self_attn if kind == "attention" else layer.conv
-    names = ATTENTION_LINEARS if kind == "attention" else CONV_LINEARS
-    prefix = "self_attn" if kind == "attention" else "conv"
+    prefix, names = _BLOCK[block_kind(layer)]
+    op = getattr(layer, prefix)
     for n in names:
         mod = getattr(op, n, None)
         if isinstance(mod, nn.Linear):
@@ -44,14 +43,13 @@ def quantizable_linears(layer: nn.Module) -> dict[str, nn.Linear]:
     return out
 
 
+def layer_tensor_name(idx: int, name: str) -> str:
+    """Qualified tensor name shared by the quantizer manifest and the exporter."""
+    return f"model.layers.{idx}.{name}"
+
+
 def decoder_layers(model: nn.Module) -> nn.ModuleList:
     """Lfm3Model.layers; accepts the ForCausalLM wrapper or the inner model."""
     inner = getattr(model, "model", model)
     return inner.layers
 
-
-def tied_lm_head_uses_embedding(model: nn.Module) -> bool:
-    head = getattr(model, "lm_head", None)
-    inner = getattr(model, "model", model)
-    emb = getattr(inner, "embed_tokens", None)
-    return head is not None and emb is not None and head.weight is emb.weight

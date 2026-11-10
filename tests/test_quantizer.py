@@ -15,7 +15,6 @@ def test_group_view_shapes():
     w = torch.randn(4, 256)  # 2 groups of 128 per row
     g = group_view(w, 128)
     assert g.shape == (4, 2, 128)
-    # non-divisible dim pads with zeros and reports the pad
     g2, pad = group_view(torch.randn(2, 200), 128, return_pad=True)
     assert g2.shape == (2, 2, 128) and pad == 56
 
@@ -52,16 +51,18 @@ def test_fit_output_scale_lstsq():
     assert (codes * alpha - g).pow(2).mean() < (codes - g).pow(2).mean()
 
 
-def test_ternarize_weight_hard_stage_codes():
+def test_ternarize_weight_hard_stage_reconstructs_the_weight():
     torch.manual_seed(2)
-    w = torch.randn(8, 256) * 0.03
+    w = torch.randn(8, 256)
     params = CatqParams.for_weight(w, group_size=128)
-    recon, codes, alpha = ternarize_weight(w, params, t=1.0, return_parts=True)
+    recon, codes, _ = ternarize_weight(w, params, t=1.0, return_parts=True)
     assert recon.shape == w.shape
-    # stage-2 (hard): codes in {-1,0,1}, recon == codes*alpha regrouped
     assert set(codes.unique().tolist()) <= {-1.0, 0.0, 1.0}
-    g_recon, pad = group_view(recon, 128, return_pad=True)
-    assert torch.allclose(g_recon, codes * alpha)
+    # a collapse to all-zero codes would pass the alphabet check but destroy the model
+    assert (codes == 0).float().mean() < 0.5
+    assert (codes != 0).any(dim=-1).all()
+    # and the reconstruction beats treating the weight as zero
+    assert (recon - w).pow(2).mean() < 0.25 * w.pow(2).mean()
 
 
 def test_learnable_factors_shift_result():
@@ -83,7 +84,6 @@ def test_ste_gradient_flows():
     ternarize_weight(w, params, t=1.0).sum().backward()
     assert w.grad is not None and torch.isfinite(w.grad).all()
     assert w.grad.abs().sum() > 0
-    # LM factors receive gradients too
     assert params.d_mu.grad is not None
 
 
@@ -93,7 +93,6 @@ def test_stage_schedule():
     params = CatqParams.for_weight(w, group_size=128, gamma=0.8)
     _, codes, _ = ternarize_weight(w, params, t=0.9, return_parts=True)
     assert set(codes.unique().tolist()) <= {-1.0, 0.0, 1.0}
-    # soft stage output is continuous (not restricted to codes)
     soft = ternarize_weight(w, params, t=0.4)
     vals = group_view(soft, 128).flatten()
     assert not set(torch.round(vals / vals.abs().max() * 4).unique().tolist()) <= {-4.0, 0.0, 4.0}

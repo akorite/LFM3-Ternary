@@ -30,18 +30,17 @@ lm_eval \
   --output_path "${RAW_DIR}"
 
 # lm-eval writes <output_path>/<model-slug>/results_<ts>.json; glob it.
-python3 - "${RAW_DIR}" "${OUT}" <<'PYEOF'
+python3 - "${RAW_DIR}" "${OUT}" "${TASKS}" <<'PYEOF'
 import glob
 import json
 import sys
 
-raw_dir, out_path = sys.argv[1], sys.argv[2]
+raw_dir, out_path, tasks = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
 hits = glob.glob(f"{raw_dir}/**/results_*.json", recursive=True)
 if not hits:
     sys.exit(f"error: no lm-eval results file under {raw_dir}")
 raw = json.loads(open(sorted(hits)[-1]).read())["results"]
 
-tasks = ["piqa", "arc_easy", "arc_challenge", "hellaswag", "winogrande"]
 scores = {}
 missing = []
 for task in tasks:

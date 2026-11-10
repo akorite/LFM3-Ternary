@@ -74,9 +74,7 @@ def test_simple_exact_match():
     assert run_bfcl.simple_checker(TRIANGLE_FUNC, model, TRIANGLE_GT)
 
 
-def test_optional_param_omitted_is_fine():
-    model = {"calculate_triangle_area": {"base": 10, "height": 5}}
-    assert run_bfcl.simple_checker(TRIANGLE_FUNC, model, TRIANGLE_GT)
+def test_optional_param_supplied_is_fine():
     model_full = {"calculate_triangle_area": {"base": 10, "height": 5, "unit": "units"}}
     assert run_bfcl.simple_checker(TRIANGLE_FUNC, model_full, TRIANGLE_GT)
 

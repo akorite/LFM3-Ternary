@@ -17,6 +17,7 @@ hard error (nonzero exit), never a silent zero baseline.
 import argparse
 import json
 import sys
+from pathlib import Path
 
 TASKS = ["piqa", "arc_easy", "arc_challenge", "hellaswag", "winogrande"]
 
@@ -27,7 +28,7 @@ AVG_KILL = 0.80
 
 def load_scores(path, label):
     try:
-        data = json.loads(open(path).read())
+        data = json.loads(Path(path).read_text())
     except OSError as exc:
         sys.exit(f"error: cannot read {label} file {path}: {exc}")
     except json.JSONDecodeError as exc:

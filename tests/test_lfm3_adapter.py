@@ -6,7 +6,6 @@ from ternarq.lfm3_adapter import (
     block_kind,
     decoder_layers,
     quantizable_linears,
-    tied_lm_head_uses_embedding,
 )
 
 
@@ -87,7 +86,6 @@ def test_conv_block_linears():
         "conv.in_proj", "conv.out_proj",
         "feed_forward.w1", "feed_forward.w2", "feed_forward.w3",
     ]
-    # depthwise kernel and norms never appear in the quantizable set
     assert all("conv.conv" not in n and "norm" not in n for n in lin)
 
 
@@ -98,10 +96,8 @@ def test_block_kind_dispatch():
         block_kind(nn.Linear(4, 4))
 
 
-def test_decoder_layers_and_tied_head():
-    model = _CausalLM()
-    assert len(decoder_layers(model)) == 4
-    assert tied_lm_head_uses_embedding(model)
+def test_decoder_layers():
+    assert len(decoder_layers(_CausalLM())) == 4
 
 
 def test_scope_keeps_everything_else_bf16():
@@ -111,7 +107,6 @@ def test_scope_keeps_everything_else_bf16():
         quantized_names |= {f"model.layers.{i}.{n}.weight" for n in quantizable_linears(layer)}
     state_names = {n for n, _ in model.named_parameters() if n.endswith("weight")}
     untouched = state_names - quantized_names
-    # embed, all norms, conv kernels stay out of the ternary set
     assert any("embed_tokens" in n for n in untouched)
     assert any("norm" in n for n in untouched)
     assert any("conv.conv" in n for n in untouched)

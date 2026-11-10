@@ -11,7 +11,8 @@ import argparse
 import json
 from pathlib import Path
 
-TASKS = ["piqa", "arc_easy", "arc_challenge", "hellaswag", "winogrande"]
+from gates import TASKS
+
 TASK_LABEL = {"arc_easy": "ARC-E", "arc_challenge": "ARC-C", "hellaswag": "HellaSwag",
               "winogrande": "Winogrande", "piqa": "PIQA"}
 
@@ -56,7 +57,7 @@ def render(results: Path, plan: str) -> str:
                 raw = (scores or {}).get(t)
                 ret = ((verdicts[n] or {}).get("per_task_retention", {}) or {}).get(t)
                 cells.append("—" if raw is None else f"{raw:.4f} ({_pct(ret)})")
-            out.append(f"| {TASK_LABEL[t]} | {base.get(t, float('nan')):.4f} | " + " | ".join(cells) + " |")
+            out.append(f"| {TASK_LABEL[t]} | {_num(base.get(t), 4)} | " + " | ".join(cells) + " |")
         out += ["", "| Rung | avg-5 | avg retention | verdict |", "|---|---|---|---|"]
         for n, v in verdicts.items():
             scores = rungs[n] or {}

@@ -10,6 +10,7 @@
 set -euo pipefail
 
 LLAMA_CPP="${LLAMA_CPP:-$HOME/llama.cpp}"
+LLAMA_CPP_PRISM="${LLAMA_CPP_PRISM:-$HOME/llama.cpp-prism}"
 MODEL="${MODEL:-LiquidAI/LFM3-1.7B}"
 OUT="${OUT:-gguf}"
 mkdir -p "$OUT"
@@ -21,15 +22,13 @@ if [[ ! -f "$COMBINED" ]]; then
 fi
 
 quantize() {  # $1 = type, $2 = output
-  python3 "$LLAMA_CPP/convert_hf_to_gguf.py" "$MODEL" \
-    --outfile "$OUT/LFM3-1.7B-F16.gguf" --outtype f16 2>/dev/null || true
   "$LLAMA_CPP/build/bin/llama-quantize" "$COMBINED" "$2" "$1"
 }
 
-if quantize NVFP4 "$OUT/LFM3-1.7B-NVFP4.gguf" 2>nvfp4.err; then
+if quantize NVFP4 "$OUT/LFM3-1.7B-NVFP4.gguf" 2>"$OUT/nvfp4.err"; then
   echo "NVFP4 comparator built"
 else
-  echo "NVFP4 unavailable for this LFM3 architecture ($(tail -1 nvfp4.err)); using Q4_K_M" \
+  echo "NVFP4 unavailable for this LFM3 architecture ($(tail -1 "$OUT/nvfp4.err")); using Q4_K_M" \
     | tee "$OUT/comparator-substitution.txt"
   quantize Q4_K_M "$OUT/LFM3-1.7B-Q4_K_M.gguf"
 fi

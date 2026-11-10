@@ -1,15 +1,8 @@
-"""Sliding-layer reconstruction for CAT-Q on LFM3.
+"""Sliding-layer reconstruction: each layer is ternarized against
+activations of the already-quantized prefix.
 
-Sequential over decoder layers: each layer's quantizable linears are ternarized
-against activations captured with the already-fake-quantized prefix active, then
-the weights are overwritten in place so the next layer sees real activations of
-the quantized prefix (the "sliding" in SliderQuant).
-
-Per-linear objective: activation-weighted reconstruction, minimizing
-||X @ W^T - X @ W_hat^T||^2 normalized by ||X @ W^T||^2, over the learnable
-modulation factors. BitTern ships no training code; this is the re-derived
-loop. shortcut: within a layer all linears use inputs captured at the same
-pass (entry and exit linears alike) — finer per-position re-capture would need
+shortcut: within a layer all linears use inputs captured at the same pass
+(entry and exit linears alike) — finer per-position re-capture would need
 block-level partial forwards; revisit if rung-1 evals underdeliver.
 """
 from __future__ import annotations
@@ -20,8 +13,9 @@ from typing import Callable, Iterable
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-from .lfm3_adapter import decoder_layers, quantizable_linears
+from .lfm3_adapter import decoder_layers, layer_tensor_name, quantizable_linears
 from .quantizer import CatqParams, ternarize_weight
 
 
@@ -30,8 +24,8 @@ class CatqReconstructor:
                  s0: float = 30.0, delta0: float = 0.5, lr: float = 5e-3,
                  epochs: int = 60):
         self.model = model
-        self.cfg = dict(group_size=group_size, gamma=gamma, s0=s0,
-                        delta0=delta0, lr=lr, epochs=epochs)
+        self.group_size, self.gamma, self.s0, self.delta0 = group_size, gamma, s0, delta0
+        self.lr, self.epochs = lr, epochs
         self.manifest: dict[str, dict] = {"group_size": group_size, "tensors": {}}
 
     @torch.no_grad()
@@ -43,7 +37,7 @@ class CatqReconstructor:
         hooks = []
         for name, mod in linears.items():
             def _hook(_m, args, _name=name):
-                captured[_name].append(args[0].detach().to("cpu", torch.float32))
+                captured[_name].append(args[0].detach().to("cpu"))
             hooks.append(mod.register_forward_pre_hook(_hook))
         try:
             for batch in batches:
@@ -57,20 +51,21 @@ class CatqReconstructor:
                     inputs: list[torch.Tensor]) -> dict:
         w = linear.weight
         params = CatqParams.for_weight(
-            w, self.cfg["group_size"], self.cfg["gamma"], self.cfg["s0"], self.cfg["delta0"])
-        params = params.to(w.device)
-        opt = torch.optim.AdamW(params.parameters(), lr=self.cfg["lr"])
-        epochs = self.cfg["epochs"]
+            w, self.group_size, self.gamma, self.s0, self.delta0)
+        opt = torch.optim.AdamW(params.parameters(), lr=self.lr)
+        epochs = self.epochs
         denom_w = w.detach()
-        for epoch in range(epochs):
-            t = epoch / max(epochs - 1, 1)
+        with torch.no_grad():
+            targets = []
             for x in inputs:
                 xf = x.reshape(-1, x.shape[-1]).to(w.device, w.dtype)
-                with torch.no_grad():
-                    y = xf @ denom_w.T
-                    norm = y.pow(2).mean().clamp_min(1e-8)
+                y = F.linear(xf, denom_w)
+                targets.append((xf, y, y.pow(2).mean().clamp_min(1e-8)))
+        for epoch in range(epochs):
+            t = epoch / max(epochs - 1, 1)
+            for xf, y, norm in targets:
                 w_hat = ternarize_weight(denom_w, params, t)
-                loss = (xf @ w_hat.T - y).pow(2).mean() / norm
+                loss = (F.linear(xf, w_hat) - y).pow(2).mean() / norm
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
@@ -87,7 +82,7 @@ class CatqReconstructor:
         for idx, layer in enumerate(decoder_layers(self.model)):
             captured = self._capture(layer, batches, forward_fn)
             for name, linear in quantizable_linears(layer).items():
-                qual = f"model.layers.{idx}.{name}"
+                qual = layer_tensor_name(idx, name)
                 self.manifest["tensors"][qual] = self._fit_linear(qual, linear, captured[name])
         return self.manifest
 

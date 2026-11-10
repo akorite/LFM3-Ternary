@@ -40,8 +40,10 @@ def main() -> None:
     import torch
     from transformers import AutoModelForCausalLM
 
-    from ternarq.qat import install_qat, load_checkpoint, qat_loss, save_checkpoint, zero_ratio
+    from ternarq.qat import (install_qat, load_checkpoint, qat_loss, save_checkpoint,
+                            uninstall_qat, zero_ratio)
     from ternarq.lfm3_adapter import decoder_layers, quantizable_linears
+    from run_catq import load_token_tensor
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     student = AutoModelForCausalLM.from_pretrained(
@@ -60,11 +62,14 @@ def main() -> None:
     start = load_checkpoint(args.resume, student, opt) if args.resume else 0
     logger.info("resuming at step %d of %d", start, total_steps)
 
-    ids = torch.load(args.data, map_location="cpu", weights_only=True)
-    ids = ids if torch.is_tensor(ids) else torch.tensor(ids, dtype=torch.int32)
+    ids = load_token_tensor(args.data)
     n_chunks = ids.numel() // args.seq_len
     if n_chunks == 0:
         raise SystemExit(f"corpus holds {ids.numel()} tokens, fewer than one sequence")
+
+    # the collapse sentinel is a global signature, so sampling four layers is enough
+    layers = list(decoder_layers(student))
+    probe_layers = layers[:4]
 
     args.out.mkdir(parents=True, exist_ok=True)
     for step in range(start, total_steps):
@@ -79,12 +84,13 @@ def main() -> None:
         opt.step()
         if step % 20 == 0:
             zr = max(zero_ratio(m.weight, args.group_size)
-                     for layer in decoder_layers(student)
-                     for m in quantizable_linears(layer).values())
+                     for layer in probe_layers for m in quantizable_linears(layer).values())
             logger.info("step %d loss %.4f zero_ratio_max %.3f", step, loss.item(), zr)
         if (step + 1) % args.save_every == 0 or step + 1 == total_steps:
             path = save_checkpoint(args.out / f"step{step + 1}.pt", student, opt, step + 1)
+            uninstall_qat(student)  # HF keys, not the wrapper's; absmean requantizes on export
             student.save_pretrained(args.out / "hf", safe_serialization=True)
+            install_qat(student, args.group_size)
             (args.out / "qat.json").write_text(json.dumps(
                 {"step": step + 1, "total_steps": total_steps,
                  "loss": loss.item(), "checkpoint": str(path)}, indent=1))

@@ -1,31 +1,16 @@
-"""CAT-Q ternarization core: learnable modulation (LM) + softened ternarization (ST).
+"""CAT-Q ternarization core: learnable modulation + softened ternarization.
 
-Recipe (CAT-Q, arXiv:2606.26650): weights are flattened into non-overlapping
-groups of `group_size` (128). Per group, three learnable factors modulate the
-normalization statistics:
-
-    mu_eff    = mu0 + tanh(d_mu)    * alpha0       # -1 < d_mu < 1 effective
-    alpha_eff = alpha0 * (1 + tanh(d_alpha))
-    delta_eff = delta0 * (1 + tanh(d_delta)), clamped to [1e-2, 1.5]
-
-normalized weights w_hat = (w - mu_eff) / alpha_eff feed either:
-
-    stage 1 (t <= gamma): soft ternarization
-        f(w; s, delta) = [tanh(s*(w - delta)) + tanh(s*(w + delta))] / (2*tanh(s))
-        with sharpness s ramped linearly 2 -> s0 across the stage;
-    stage 2 (t > gamma): hard ternary codes via round-half-up threshold with
-        straight-through gradients.
-
-The final reconstruction is W ~ alpha_out * T with alpha_out the per-group
-least-squares scale (no mean/zero-point: CAT-Q drops mu in the output form).
+Recipe: arXiv:2606.26650.
 """
 from __future__ import annotations
+
+import math
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-S_START = 2.0  # soft-stage sharpness ramp start
+S_START = 2.0
 
 
 def group_view(w: torch.Tensor, group_size: int, return_pad: bool = False):
@@ -62,31 +47,38 @@ def fit_output_scale(w_groups: torch.Tensor, codes: torch.Tensor) -> torch.Tenso
 
 
 class CatqParams(nn.Module):
-    """Learnable modulation factors for one weight tensor, laid out per group."""
+    """Learnable modulation factors for one weight tensor, laid out per group.
 
-    def __init__(self, shape, group_size: int, gamma: float, s0: float, delta0: float):
+    The anchors (mean/std per group) are captured at construction, so callers
+    must build these from the weight they will ternarize and not mutate it.
+    """
+
+    def __init__(self, group_size: int, gamma: float, s0: float, delta0: float,
+                 mu0: torch.Tensor, alpha0: torch.Tensor):
         super().__init__()
         self.group_size, self.gamma, self.s0, self.delta0 = group_size, gamma, s0, delta0
-        n_groups = -(-shape[-1] // group_size) * int(torch.tensor(shape[:-1]).prod() or 1)
+        self.register_buffer("mu0", mu0.clone())
+        self.register_buffer("alpha0", alpha0.clone())
+        n_groups = mu0.numel()
         self.d_mu = nn.Parameter(torch.zeros(n_groups))
         self.d_alpha = nn.Parameter(torch.zeros(n_groups))
         self.d_delta = nn.Parameter(torch.zeros(n_groups))
-        self._shape = tuple(shape)
 
     @classmethod
     def for_weight(cls, w: torch.Tensor, group_size: int = 128, gamma: float = 0.8,
                    s0: float = 30.0, delta0: float = 0.5) -> "CatqParams":
-        return cls(tuple(w.shape), group_size, gamma, s0, delta0).to(w.device, w.dtype)
+        g = group_view(w.detach(), group_size)
+        mu0, alpha0 = mu_alpha(g)
+        return cls(group_size, gamma, s0, delta0, mu0, alpha0).to(w.device, w.dtype)
 
     def _grouped_factors(self, w: torch.Tensor):
         g, pad = group_view(w, self.group_size, return_pad=True)
-        mu0, alpha0 = mu_alpha(g.detach())
         shape = g.shape[:-2] + (g.shape[-2], 1)
         d_mu = self.d_mu.reshape(shape)
         d_alpha = self.d_alpha.reshape(shape)
         d_delta = self.d_delta.reshape(shape)
-        mu_eff = mu0 + torch.tanh(d_mu) * alpha0
-        alpha_eff = alpha0 * (1 + torch.tanh(d_alpha))
+        mu_eff = self.mu0 + torch.tanh(d_mu) * self.alpha0
+        alpha_eff = self.alpha0 * (1 + torch.tanh(d_alpha))
         delta_eff = (self.delta0 * (1 + torch.tanh(d_delta))).clamp(1e-2, 1.5)
         return g, pad, mu_eff, alpha_eff, delta_eff
 
@@ -101,10 +93,10 @@ def ternarize_weight(w: torch.Tensor, params: CatqParams, t: float,
     """Reconstruct w as alpha*T using the CAT-Q LM + ST recipe at progress t."""
     g, pad, mu_eff, alpha_eff, delta_eff = params._grouped_factors(w)
     w_hat = (g - mu_eff) / alpha_eff
-    if t <= params.gamma:  # differentiable ternarization
+    if t <= params.gamma:
         codes = soft_ternary(w_hat, torch.as_tensor(sharpness(t, params.gamma, params.s0),
                                                     dtype=w.dtype, device=w.device), delta_eff)
-    else:  # hard ternary with straight-through gradients
+    else:
         hard = hard_ternary(w_hat, delta_eff)
         codes = w_hat + (hard - w_hat).detach()
     alpha = fit_output_scale(g, codes)

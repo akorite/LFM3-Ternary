@@ -38,14 +38,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"
 OUT="${OUT:-$ROOT/results/bfcl.json}"
 BFCL_DATA="${BFCL_DATA:-$ROOT/data/bfcl}"
-DATASET_BASE="https://huggingface.co/datasets/gorilla-llm/Berkeley-Function-Calling-Leaderboard/raw/main"
+DATASET_BASE="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import run_bfcl; print(run_bfcl.DATASET_BASE)' "$HERE")"
 
 fetch_bfcl_data() {
-  local files=(simple multiple parallel parallel_multiple java javascript
-    irrelevance live_simple live_multiple live_parallel live_parallel_multiple
-    live_irrelevance live_relevance
-    multi_turn_base multi_turn_composite multi_turn_long_context
-    multi_turn_miss_func multi_turn_miss_param)
+  local files
+  read -r -a files <<<"$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import run_bfcl; print(" ".join(run_bfcl.ALL_CATEGORIES))' "$HERE")"
   mkdir -p "$BFCL_DATA/possible_answer" "$BFCL_DATA/multi_turn_func_doc"
   for f in "${files[@]}"; do
     [ -s "$BFCL_DATA/BFCL_v3_$f.json" ] || \
