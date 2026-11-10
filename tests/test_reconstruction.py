@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from ternarq.lfm3_adapter import quantizable_linears
+from ternarq.quantizer import CatqParams, ternarize_weight
 from ternarq.reconstruction import CatqReconstructor
 
 from test_lfm3_adapter import _CausalLM
@@ -55,6 +56,15 @@ def test_run_quantizes_all_linears_and_writes_manifest(tmp_path):
         if n not in {f"{q}.weight" for q in names}:
             assert torch.equal(p, before[n]), n
 
+    # training must have moved at least one tensor away from plain ternarization
+    moved = []
+    for qual in manifest["tensors"]:
+        mod = modules[qual]
+        untrained = ternarize_weight(mod.weight.detach(),
+                                     CatqParams.for_weight(mod.weight.detach(), 8), t=1.0)
+        moved.append(not torch.allclose(mod.weight, untrained, atol=1e-6))
+    assert any(moved)
+
     path = recon.save_manifest(tmp_path)
     assert path.exists() and (tmp_path / "ternary_codes.pt").exists()
     loaded = torch.load(tmp_path / "ternary_codes.pt", weights_only=True)
@@ -78,11 +88,9 @@ def test_second_layer_sees_quantized_first_layer():
         before = torch.cat([c.reshape(-1, c.shape[-1]) for c in seen])
         seen.clear()
         CatqReconstructor(model, group_size=8, epochs=1).run(batches, lambda m, b: m(b))
-        seen.clear()
-        with torch.no_grad():   # layer 0 now holds ternary weights
-            for batch in batches:
-                model(batch)
     finally:
         hook.remove()
-    after = torch.cat([c.reshape(-1, c.shape[-1]) for c in seen])
-    assert not torch.equal(before, after)
+    # layer 1's capture pass runs after layer 0 is ternarized, so its inputs move
+    during = torch.cat([c.reshape(-1, c.shape[-1]) for c in seen])
+    tail = during[-before.shape[0]:]
+    assert not torch.equal(before, tail)

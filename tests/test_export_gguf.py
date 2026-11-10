@@ -199,13 +199,17 @@ def _read_gguf_header(path):
         t = struct.unpack('<I', bytes(data[off:off + 4]))[0]
         v, off = rd_val(t, off + 4)
         kvs[k] = v
-    names = []
+    names, dims, types = [], {}, {}
     for _ in range(nt):
         k, off = rd_str(off)
         names.append(k)
         nd = struct.unpack('<I', bytes(data[off:off + 4]))[0]
-        off += 4 + 8 * nd + 4 + 8
-    return kvs, names
+        off += 4
+        dims[k] = struct.unpack('<' + 'Q' * nd, bytes(data[off:off + 8 * nd]))
+        off += 8 * nd
+        types[k] = struct.unpack('<I', bytes(data[off:off + 4]))[0]
+        off += 4 + 8
+    return kvs, names, dims, types
 
 
 def test_export_writes_valid_gguf(tmp_path):
@@ -213,7 +217,7 @@ def test_export_writes_valid_gguf(tmp_path):
     m = _manifest(tmp_path)
     out = tmp_path / "tiny-ternary.gguf"
     export(ck, m, out)
-    kvs, names = _read_gguf_header(out)
+    kvs, names, dims, types = _read_gguf_header(out)
     assert kvs["general.architecture"] == "lfm3"
     assert kvs["general.file_type"] == 41
     assert kvs["lfm3.attention.sliding_window_pattern"] == [False, False, False, False, True, False]
@@ -240,3 +244,26 @@ def test_export_writes_valid_gguf(tmp_path):
                          f"{b}.attn_output.weight", f"{b}.attn_gate.weight",
                          f"{b}.attn_q_norm.weight", f"{b}.attn_k_norm.weight"}
     assert set(names) == expected
+    # packed rows keep the logical [in, out] shape; the block count must not leak
+    assert dims["blk.0.ffn_up.weight"] == (H, FF)
+    assert dims["blk.2.attn_q.weight"] == (H, H)
+    assert dims["blk.0.shortconv.in_proj.weight"] == (H, 3 * H)
+    # R2 scope by dtype: matmuls packed (42), embedding BF16 (30), norms/kernel F32 (0)
+    assert types["blk.0.ffn_up.weight"] == 42
+    assert types["token_embd.weight"] == 30
+    assert types["blk.0.attn_norm.weight"] == 0
+    assert types["blk.0.shortconv.conv.weight"] == 0
+    assert types["blk.2.attn_q_norm.weight"] == 0
+
+
+def test_absmean_mode_packs_every_matmul(tmp_path):
+    ck = _fake_checkpoint(tmp_path)
+    out = tmp_path / "absmean-ternary.gguf"
+    export(ck, "absmean", out)
+    kvs, names, dims, types = _read_gguf_header(out)
+    # every matmul is packed; norms, conv kernel, embed and lm_head are not
+    assert "blk.0.shortconv.in_proj.weight" in names
+    assert "blk.2.attn_q.weight" in names
+    assert "blk.0.ffn_up.weight" in names
+    assert "token_embd.weight" in names and "output.weight" not in names
+    assert kvs["general.file_type"] == 41

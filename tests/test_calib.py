@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import build_calib_ayot as ayot
 import build_calib_c4 as c4

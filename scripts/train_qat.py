@@ -32,6 +32,8 @@ def main() -> None:
     p.add_argument("--temperature", type=float, default=2.0)
     p.add_argument("--lam", type=float, default=0.5)
     p.add_argument("--save-every", type=int, default=200)
+    p.add_argument("--keep-last", type=int, default=2,
+                   help="rolling checkpoints to keep; each is model + optimizer state")
     p.add_argument("--resume", type=Path, default=None)
     p.add_argument("--max-steps", type=int, default=0, help="0 = derive from --tokens")
     args = p.parse_args()
@@ -40,9 +42,10 @@ def main() -> None:
     import torch
     from transformers import AutoModelForCausalLM
 
-    from ternarq.qat import (install_qat, load_checkpoint, qat_loss, save_checkpoint,
+    from ternarq.qat import (FakeQuantLinear, bake_ternary, install_qat, load_checkpoint,
+                            qat_loss, save_checkpoint, save_ternary_manifest,
                             uninstall_qat, zero_ratio)
-    from ternarq.lfm3_adapter import decoder_layers, quantizable_linears
+    from ternarq.lfm3_adapter import decoder_layers
     from run_catq import load_token_tensor
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -68,13 +71,17 @@ def main() -> None:
         raise SystemExit(f"corpus holds {ids.numel()} tokens, fewer than one sequence")
 
     # the collapse sentinel is a global signature, so sampling four layers is enough
-    layers = list(decoder_layers(student))
-    probe_layers = layers[:4]
+    probes = [m for layer in list(decoder_layers(student))[:4]
+              for m in layer.modules() if isinstance(m, FakeQuantLinear)]
+    if not probes:
+        raise SystemExit("no quantized linears to monitor")
 
     args.out.mkdir(parents=True, exist_ok=True)
     for step in range(start, total_steps):
         i = step % n_chunks
-        chunk = ids[i * args.seq_len:(i + 1) * args.seq_len].to(device, torch.long)[None]
+        span = args.seq_len * args.batch_size
+        chunk = ids[i * span:(i + 1) * span].to(device, torch.long).reshape(
+            args.batch_size, args.seq_len)
         with torch.no_grad():
             t_logits = teacher(input_ids=chunk).logits
         s_logits = student(input_ids=chunk).logits
@@ -83,18 +90,24 @@ def main() -> None:
         loss.backward()
         opt.step()
         if step % 20 == 0:
-            zr = max(zero_ratio(m.weight, args.group_size)
-                     for layer in probe_layers for m in quantizable_linears(layer).values())
+            zr = max(zero_ratio(m.linear.weight, m.group_size) for m in probes)
             logger.info("step %d loss %.4f zero_ratio_max %.3f", step, loss.item(), zr)
-        if (step + 1) % args.save_every == 0 or step + 1 == total_steps:
-            path = save_checkpoint(args.out / f"step{step + 1}.pt", student, opt, step + 1)
-            uninstall_qat(student)  # HF keys, not the wrapper's; absmean requantizes on export
-            student.save_pretrained(args.out / "hf", safe_serialization=True)
-            install_qat(student, args.group_size)
-            (args.out / "qat.json").write_text(json.dumps(
-                {"step": step + 1, "total_steps": total_steps,
-                 "loss": loss.item(), "checkpoint": str(path)}, indent=1))
+        final = step + 1 == total_steps
+        if (step + 1) % args.save_every == 0 or final:
+            path = save_checkpoint(args.out / f"step{step + 1}.pt", student, opt, step + 1,
+                                   keep_last=args.keep_last)
             logger.info("saved %s", path)
+        if final:
+            # Bake the ternary values into the weights so the evaluated checkpoint,
+            # the exported GGUF and the reported numbers are the same model.
+            manifest = bake_ternary(student, args.group_size)
+            uninstall_qat(student)
+            student.save_pretrained(args.out / "hf", safe_serialization=True)
+            save_ternary_manifest(args.out / "ternary", manifest, args.group_size)
+            (args.out / "qat.json").write_text(json.dumps(
+                {"step": step + 1, "total_steps": total_steps, "loss": loss.item(),
+                 "checkpoint": str(path), "baked_tensors": len(manifest)}, indent=1))
+            logger.info("baked %d ternary tensors into %s/hf", len(manifest), args.out)
 
 
 if __name__ == "__main__":

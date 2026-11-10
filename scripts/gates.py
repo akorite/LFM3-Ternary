@@ -16,10 +16,12 @@ hard error (nonzero exit), never a silent zero baseline.
 """
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
 TASKS = ["piqa", "arc_easy", "arc_challenge", "hellaswag", "winogrande"]
+RUNGS = (1, 2, 3)
 
 AVG_PASS = 0.88
 TASK_PASS = 0.80
@@ -38,7 +40,7 @@ def load_scores(path, label):
     scores = {}
     for task in TASKS:
         value = data.get(task)
-        if not isinstance(value, (int, float)) or value <= 0:
+        if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             sys.exit(
                 f"error: {label} file {path} has no usable score for {task} "
                 f"(got {value!r}); refusing to treat it as 0"
@@ -56,6 +58,11 @@ def emit(verdict, out_path):
 
 
 def tier0(args):
+    if args.remaining != len(RUNGS) - args.rung:
+        sys.exit(
+            f"error: --remaining {args.remaining} contradicts --rung {args.rung} "
+            f"({len(RUNGS)} rungs, so {len(RUNGS) - args.rung} remain)"
+        )
     baseline = load_scores(args.baseline, "baseline")
     scores = load_scores(args.scores, "scores")
 
@@ -99,6 +106,7 @@ def tier0(args):
     emit(
         {
             "verdict": verdict,
+            "avg_score": round(avg_score, 4),
             "avg_retention": round(avg_retention, 4),
             "per_task_retention": {t: round(r, 4) for t, r in per_task.items()},
             "reason": reason,

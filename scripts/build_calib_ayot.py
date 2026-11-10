@@ -37,6 +37,16 @@ def _norm(text):
     return " ".join(WORD_RE.findall(text.lower()))
 
 
+def _assert_eval_set_matches_gates():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import gates
+    missing = set(gates.TASKS) - set(EVAL_DATASETS)
+    if missing:
+        raise SystemExit(f"EVAL_DATASETS lacks gated tasks: {sorted(missing)}")
+
+
 def assert_no_contamination(questions, eval_prompts):
     """Assert no question text collides with any eval prompt."""
     eval_set = {_norm(p) for p in eval_prompts}
@@ -174,6 +184,7 @@ def main():
                    help="also write the first N triplets to ayot_review.jsonl")
     args = p.parse_args()
 
+    _assert_eval_set_matches_gates()
     questions = _load_questions(args.seed)
     assert_no_contamination([q["question"] for q in questions],
                             iter_eval_prompts(args.bfcl_file))

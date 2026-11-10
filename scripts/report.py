@@ -60,8 +60,7 @@ def render(results: Path, plan: str) -> str:
             out.append(f"| {TASK_LABEL[t]} | {_num(base.get(t), 4)} | " + " | ".join(cells) + " |")
         out += ["", "| Rung | avg-5 | avg retention | verdict |", "|---|---|---|---|"]
         for n, v in verdicts.items():
-            scores = rungs[n] or {}
-            avg = sum(scores[t] for t in TASKS) / len(TASKS) if all(t in scores for t in TASKS) else None
+            avg = (v or {}).get("avg_score")
             out.append(f"| {n} | {_num(avg, 4)} | {_pct((v or {}).get('avg_retention'))} | "
                        f"{(v or {}).get('verdict', '—')} |")
     out.append("")
@@ -73,6 +72,7 @@ def render(results: Path, plan: str) -> str:
         b16, art = bfcl.get("bf16_score"), bfcl.get("artifact_score")
         ret = (art / b16) if (b16 and art is not None) else None
         t1v = _load(results / "bfcl_verdict.json") or {}
+        ret = t1v.get("avg_retention", ret)
         out += [f"- BF16: {_num(b16, 2)}",
                 f"- ternary: {_num(art, 2)}",
                 f"- retention: {_pct(ret)}",

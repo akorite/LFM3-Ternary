@@ -8,6 +8,7 @@ CLI="${LLAMA_CLI:?set LLAMA_CLI to the llama-cli of the runtime that has the pac
 PROMPT="${PROMPT:-The capital of France is}"
 N="${N:-32}"
 RUNTIME="${RUNTIME:-PrismML fork (prism branch)}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${OUT:-results}"
 mkdir -p "$OUT"
 
@@ -18,25 +19,23 @@ echo "$out"
 continuation="${out#"$PROMPT"}"
 [[ -n "${continuation//[[:space:]]/}" ]] || { echo "no generated text" >&2; exit 1; }
 
-python3 - "$MODEL" "$RUNTIME" "$OUT/artifact.json" <<'PY'
+python3 - "$MODEL" "$RUNTIME" "$OUT/artifact.json" "$HERE" <<'PY'
 import json, sys
 from pathlib import Path
 
-import gguf
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from export_gguf import GGML_TYPE_Q2_0
+sys.path.insert(0, sys.argv[4])
+from export_gguf import count_gguf_types
 
 model, runtime, out = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
-reader = gguf.GGUFReader(str(model))
-q2_0 = sum(1 for t in reader.tensors if t.tensor_type == GGML_TYPE_Q2_0)
-floats = len(reader.tensors) - q2_0
+counts = count_gguf_types(model)
+if not counts["ternary"]:
+    sys.exit(f"{model} holds no packed ternary tensors")
 out.write_text(json.dumps({
     "path": str(model),
     "bytes": model.stat().st_size,
     "runtime": runtime,
-    "census": {"ternary": q2_0, "float": floats},
+    "census": counts,
 }, indent=1))
-print(f"recorded {out}: {q2_0} ternary / {floats} float tensors")
+print(f"recorded {out}: {counts['ternary']} ternary / {counts['float']} float tensors")
 PY
 echo "serve check OK"

@@ -39,7 +39,7 @@ def load_corpus(path: Path, seq_len: int, batch_size: int, encode=None):
     if path.suffix == ".jsonl" or path.is_dir():
         if encode is None:
             raise ValueError("triplet corpora need a tokenizer")
-        files = sorted(path.glob("*.jsonl")) if path.is_dir() else [path]
+        files = sorted(path.glob("ayot-*.jsonl")) if path.is_dir() else [path]
         ids = []
         for f in files:
             for line in f.read_text().splitlines():
@@ -91,19 +91,22 @@ def main() -> None:
     batches = list(load_corpus(args.calib, 2048, args.batch_size,
                                lambda t: tok(t, add_special_tokens=False)["input_ids"])
                    )[: args.max_batches]
+    if not batches:
+        raise SystemExit(f"calibration corpus {args.calib} yielded no batches")
     logger.info("replaying %d calibration batches", len(batches))
     recon = CatqReconstructor(model, args.group_size, args.gamma, args.s0,
                               args.delta0, args.lr, args.epochs)
     recon.run(batches, forward)
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(args.out, safe_serialization=True)
-    tok.save_pretrained(args.out)
+    hf_dir = args.out / "hf"
+    hf_dir.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(hf_dir, safe_serialization=True)
+    tok.save_pretrained(hf_dir)
     manifest = recon.save_manifest(args.out / "ternary")
     logger.info("wrote checkpoint %s and manifest %s", args.out, manifest)
 
     reloaded = AutoModelForCausalLM.from_pretrained(
-        args.out, trust_remote_code=True, torch_dtype=torch.bfloat16)
+        hf_dir, trust_remote_code=True, torch_dtype=torch.bfloat16)
     same = all(torch.equal(a, b) for a, b in
                zip(model.state_dict().values(), reloaded.state_dict().values()))
     meta = {"calib": str(args.calib), "n_batches": len(batches),

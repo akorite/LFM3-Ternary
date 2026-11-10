@@ -1,9 +1,7 @@
 """Report renderer: every number comes from a result file, none is invented."""
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from report import TASKS, render
 
@@ -26,7 +24,7 @@ def test_measured_results_are_rendered(tmp_path):
     _write(tmp_path / "baseline.json", base)
     _write(tmp_path / "rung1.json", rung)
     _write(tmp_path / "rung1_verdict.json",
-           {"verdict": "pass", "avg_retention": 0.9167,
+           {"verdict": "pass", "avg_score": 0.54, "avg_retention": 0.9167,
             "per_task_retention": {t: 0.9167 for t in TASKS} | {"piqa": 0.8333}})
     md = render(tmp_path, "plan.md")
     assert "| PIQA | 0.6000 | 0.5000 (83.3%)" in md

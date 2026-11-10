@@ -33,14 +33,17 @@ def quantizable_linears(layer: nn.Module) -> dict[str, nn.Linear]:
     prefix, names = _BLOCK[block_kind(layer)]
     op = getattr(layer, prefix)
     for n in names:
-        mod = getattr(op, n, None)
-        if isinstance(mod, nn.Linear):
-            out[f"{prefix}.{n}"] = mod
+        out[f"{prefix}.{n}"] = _require_linear(op, n, prefix)
     for n in MLP_LINEARS:
-        mod = getattr(layer.feed_forward, n, None)
-        if isinstance(mod, nn.Linear):
-            out[f"feed_forward.{n}"] = mod
+        out[f"feed_forward.{n}"] = _require_linear(layer.feed_forward, n, "feed_forward")
     return out
+
+
+def _require_linear(parent: nn.Module, name: str, where: str) -> nn.Linear:
+    mod = getattr(parent, name, None)
+    if not isinstance(mod, nn.Linear):
+        raise TypeError(f"{where}.{name} is {type(mod).__name__}, expected nn.Linear")
+    return mod
 
 
 def layer_tensor_name(idx: int, name: str) -> str:

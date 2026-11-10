@@ -8,6 +8,8 @@ KD on logits.
 """
 from __future__ import annotations
 
+import os
+import pickle
 from pathlib import Path
 from typing import Iterable
 
@@ -68,6 +70,45 @@ def install_qat(model: nn.Module, group_size: int = 128) -> list[str]:
     return wrapped
 
 
+def bake_ternary(model: nn.Module, group_size: int = 128) -> dict[str, dict]:
+    """Replace every wrapped weight by its ternary value and return codes+scales.
+
+    The codes come from the full-precision weights, so the baked values and a
+    later `absmean`-style export of them are the same numbers.
+    """
+    manifest = {}
+    with torch.no_grad():
+        for idx, layer in enumerate(decoder_layers(model)):
+            for name, mod in layer.named_modules():
+                if not isinstance(mod, FakeQuantLinear):
+                    continue
+                w = mod.linear.weight
+                g, pad, alpha, codes = _absmean_codes(w.detach(), group_size)
+                manifest[f"{layer_tensor_name(idx, name)}.weight"] = {
+                    "codes": codes.reshape(-1, codes.shape[-2], codes.shape[-1]).to(torch.int8),
+                    "alpha": alpha.reshape(-1, alpha.shape[-2], alpha.shape[-1]).float(),
+                }
+                q = (codes * alpha).reshape(*g.shape[:-2], -1)
+                if pad:
+                    q = q[..., :-pad]
+                w.copy_(q)
+    return manifest
+
+
+def save_ternary_manifest(out_dir: str | Path, manifest: dict,
+                          group_size: int = 128) -> Path:
+    """Persist baked codes/scales in the layout `export_gguf --manifest` reads."""
+    import json
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(manifest, out_dir / "ternary_codes.pt")
+    meta = {"group_size": group_size,
+            "tensors": {name: {"shape": None} for name in manifest}}
+    path = out_dir / "ternary_manifest.json"
+    path.write_text(json.dumps(meta, indent=1))
+    return path
+
+
 def uninstall_qat(model: nn.Module) -> None:
     for layer in decoder_layers(model):
         for name, mod in layer.named_modules():
@@ -99,16 +140,30 @@ def qat_loss(student_logits: torch.Tensor, input_ids: torch.Tensor,
     return ce + lam * kd_loss(s, t_logits, temperature)
 
 
-def save_checkpoint(path: str | Path, model: nn.Module, optimizer, step: int) -> Path:
+def save_checkpoint(path: str | Path, model: nn.Module, optimizer, step: int,
+                    keep_last: int | None = None) -> Path:
+    """Write a resumable checkpoint atomically, rotating older ones if asked."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save({"step": step, "model": model.state_dict(),
-                "optimizer": optimizer.state_dict()}, path)
+                "optimizer": optimizer.state_dict()}, tmp)
+    os.replace(tmp, path)
+    if keep_last is not None:
+        older = sorted(path.parent.glob("step*.pt"),
+                       key=lambda f: int(f.stem.removeprefix("step") or 0))
+        for stale in older[:-keep_last]:
+            stale.unlink()
     return path
 
 
 def load_checkpoint(path: str | Path, model: nn.Module, optimizer=None) -> int:
-    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    try:
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    except (RuntimeError, EOFError, pickle.UnpicklingError) as exc:
+        raise SystemExit(
+            f"checkpoint {path} is corrupt or truncated ({exc}); resume from an earlier step"
+        ) from exc
     model.load_state_dict(ckpt["model"])
     if optimizer is not None:
         optimizer.load_state_dict(ckpt["optimizer"])

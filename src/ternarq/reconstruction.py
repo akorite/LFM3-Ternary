@@ -49,6 +49,8 @@ class CatqReconstructor:
 
     def _fit_linear(self, name: str, linear: nn.Linear,
                     inputs: list[torch.Tensor]) -> dict:
+        if not inputs:
+            raise RuntimeError(f"no captured inputs for {name}")
         w = linear.weight
         params = CatqParams.for_weight(
             w, self.group_size, self.gamma, self.s0, self.delta0)

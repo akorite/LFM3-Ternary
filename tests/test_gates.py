@@ -7,6 +7,10 @@ import pytest
 
 GATES = Path(__file__).resolve().parents[1] / "scripts" / "gates.py"
 TASKS = ["piqa", "arc_easy", "arc_challenge", "hellaswag", "winogrande"]
+assert sorted(TASKS) == sorted(json.loads(subprocess.run(
+    [sys.executable, "-c", "import sys, json; sys.path.insert(0, sys.argv[1]); "
+     "import gates; print(json.dumps(gates.TASKS))", str(GATES.parent)],
+    capture_output=True, text=True, check=True).stdout))
 
 
 def write_scores(path, values):

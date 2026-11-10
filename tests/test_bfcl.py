@@ -272,9 +272,9 @@ def test_merge_baseline_then_artifact(tmp_path):
                  "--n-samples", "400", "--out", str(out))
     assert r2.returncode == 0, r2.stderr
     data = json.loads(out.read_text())
-    assert data["bf16_score"] == 0.71
-    assert data["artifact_score"] == 0.63
-    assert data["n_samples"] == 400
+    assert data["bf16_score"]["score"] == 0.71
+    assert data["artifact_score"]["score"] == 0.63
+    assert data["bf16_score"]["n_samples"] == data["artifact_score"]["n_samples"] == 400
 
 
 def test_artifact_without_baseline_writes(tmp_path):
@@ -282,5 +282,17 @@ def test_artifact_without_baseline_writes(tmp_path):
     r = run_cli("--record-score", "0.5", "--role", "artifact", "--out", str(out))
     assert r.returncode == 0, r.stderr
     data = json.loads(out.read_text())
-    assert data["artifact_score"] == 0.5
+    assert data["artifact_score"]["score"] == 0.5
+    assert data["artifact_score"]["n_samples"] is None
     assert "bf16_score" not in data
+
+
+def test_merge_refuses_mismatched_sample_sets(tmp_path):
+    out = tmp_path / "bfcl.json"
+    assert run_cli("--record-score", "0.71", "--role", "baseline",
+                   "--n-samples", "400", "--out", str(out)).returncode == 0
+    bad = run_cli("--record-score", "0.9", "--role", "artifact",
+                  "--n-samples", "50", "--out", str(out))
+    assert bad.returncode != 0 and "refusing to merge" in bad.stderr
+    data = json.loads(out.read_text())
+    assert "artifact_score" not in data

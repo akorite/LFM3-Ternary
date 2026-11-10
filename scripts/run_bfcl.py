@@ -193,7 +193,7 @@ def decode_model_output(text, func_docs):
     if calls is not None:
         return calls
 
-        calls = []
+    calls = []  # one call per line, as a last resort
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -574,24 +574,38 @@ def run_eval(model_path, bfcl_data, categories, out_path, role, max_new, temp, l
             total_n += n
             total_correct += correct
         print(f"{cat}: {correct}/{n}", file=sys.stderr)
-    score = round(total_correct / total_n, 4) if total_n else 0.0
-    record(out_path, role, score, total_n, per_cat)
+    if not total_n:
+        sys.exit("no sample was scored; refusing to record a 0 score")
+    score = round(total_correct / total_n, 4)
+    record(out_path, role, score, total_n, per_cat, model=str(model_path),
+           harness="hf-ast-port")
     print(json.dumps({"score": score, "n_samples": total_n, "categories": per_cat}, indent=2))
 
 
 # --------------------------------------------------------------- results ---
 
-def record(out_path, role, score, n_samples, categories):
+def record(out_path, role, score, n_samples=None, categories=None,
+           model=None, harness=None, allow_partial=False):
+    """Store one role's score with the provenance that makes it comparable."""
     out_path = Path(out_path)
     data = {}
     if out_path.exists():
         data = json.loads(out_path.read_text())
     key = "bf16_score" if role == "baseline" else "artifact_score"
-    data[key] = score
-    if n_samples:
-        data["n_samples"] = n_samples
-    if categories:
-        data["categories"] = categories
+    entry = {"score": score, "model": model, "harness": harness,
+             "n_samples": n_samples,
+             "categories": sorted(categories) if categories else None}
+    if not allow_partial and (n_samples or entry["categories"]):
+        other = data.get("artifact_score" if role == "baseline" else "bf16_score")
+        if isinstance(other, dict) and other.get("n_samples") is not None:
+            if other["n_samples"] != n_samples or other["categories"] != entry["categories"]:
+                sys.exit(
+                    f"refusing to merge {role} ({n_samples} samples, "
+                    f"{entry['categories']}) with the recorded score "
+                    f"({other['n_samples']} samples, {other['categories']}); "
+                    "re-run both roles on the same set or pass --allow-partial"
+                )
+    data[key] = entry
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
@@ -613,10 +627,15 @@ def main():
     parser.add_argument("--record-score", type=float,
                         help="merge an externally-measured score instead of running a model")
     parser.add_argument("--n-samples", type=int, default=0, help="with --record-score")
+    parser.add_argument("--harness", default="external",
+                        help="which harness produced a --record-score number")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="merge a score measured on a different sample set")
     args = parser.parse_args()
 
     if args.record_score is not None:
-        record(args.out, args.role, args.record_score, args.n_samples, None)
+        record(args.out, args.role, args.record_score, args.n_samples or None, None,
+               model=args.model, harness=args.harness, allow_partial=args.allow_partial)
         print(f"recorded {args.role} score {args.record_score} in {args.out}")
         return
     if not args.model:

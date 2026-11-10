@@ -18,7 +18,7 @@ INT4_DEFAULT="gguf/LFM3-1.7B-NVFP4.gguf"
 [[ -f "$INT4_DEFAULT" ]] || INT4_DEFAULT="gguf/LFM3-1.7B-Q4_K_M.gguf"
 
 run_bench() {  # $1 = label, $2 = llama-bench binary, $3 = model file
-  [[ -f "$3" ]] || { echo "missing $3 — skipping $1" >&2; return 0; }
+  [[ -f "$3" ]] || { echo "missing $3 for $1 — build it first" >&2; return 1; }
   "$2" -m "$3" $GPU_ARGS -p "$PROMPT" -n "$GEN" -r 3 -o json > "$OUT/bench-$1.json"
   echo "benchmarked $1 -> $OUT/bench-$1.json"
 }

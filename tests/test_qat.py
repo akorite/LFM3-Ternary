@@ -1,4 +1,6 @@
 """QAT rung tests: absmean ternary, STE, zero-ratio sentinel, resume."""
+import json
+
 import torch
 import torch.nn as nn
 
@@ -6,11 +8,13 @@ from ternarq.qat import (
     FakeQuantLinear,
     absmean_scale,
     absmean_ternary,
+    bake_ternary,
     install_qat,
     kd_loss,
     load_checkpoint,
     qat_loss,
     save_checkpoint,
+    save_ternary_manifest,
     uninstall_qat,
     zero_ratio,
 )
@@ -114,3 +118,23 @@ def test_kd_and_qat_loss():
     assert torch.isfinite(loss) and loss > 0
     assert qat_loss(torch.randn(1, 9, 50), torch.randint(0, 50, (1, 9)),
                     torch.randn(1, 9, 50)).isfinite()
+
+
+def test_bake_ternary_writes_codes_scales_and_matches_manifest(tmp_path):
+    torch.manual_seed(6)
+    model = _CausalLM()
+    install_qat(model, 8)
+    manifest = bake_ternary(model, 8)
+    assert len(manifest) == 26
+    assert "model.layers.0.feed_forward.w1.weight" in manifest
+
+    modules = dict(model.named_modules())
+    for name, entry in manifest.items():
+        mod = modules[name.removesuffix(".weight")]
+        codes = entry["codes"].reshape(*entry["codes"].shape[:1], -1, 8).float()
+        baked = (codes * entry["alpha"]).reshape(mod.linear.weight.shape)
+        assert torch.allclose(mod.linear.weight, baked, atol=1e-5)
+
+    path = save_ternary_manifest(tmp_path, manifest, 8)
+    meta = json.loads(path.read_text())
+    assert meta["group_size"] == 8 and set(meta["tensors"]) == set(manifest)

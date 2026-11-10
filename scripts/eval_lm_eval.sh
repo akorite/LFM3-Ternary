@@ -16,7 +16,8 @@ set -euo pipefail
 MODEL="${1:?usage: eval_lm_eval.sh <model_path_or_hf_id> <output_scores.json>}"
 OUT="${2:?usage: eval_lm_eval.sh <model_path_or_hf_id> <output_scores.json>}"
 
-TASKS="piqa,arc_easy,arc_challenge,hellaswag,winogrande"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TASKS="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import gates; print(",".join(gates.TASKS))' "$HERE")"
 RAW_DIR="$(mktemp -d)"
 trap 'rm -rf "${RAW_DIR}"' EXIT
 
