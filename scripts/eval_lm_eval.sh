@@ -4,7 +4,9 @@
 # HellaSwag, Winogrande, zero-shot, acc_norm preferred with acc fallback.
 #
 # Pinned for like-for-like retention across rungs:
-#   lm-eval==0.4.7   (BitTern cat-q pin)
+#   lm-eval==0.4.13  (BitTern pinned 0.4.7, which cannot import under the
+#                     transformers>=5.12 LFM3 requires: it reads the removed
+#                     transformers.AutoModelForVision2Seq at import time)
 #   --seed 2         (BitTern default)
 #   num_fewshot 0 / full test sets (no --limit)
 #

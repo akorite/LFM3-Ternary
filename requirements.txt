@@ -7,4 +7,4 @@ sentencepiece
 safetensors
 numpy
 gguf
-lm-eval==0.4.7
+lm-eval==0.4.13
