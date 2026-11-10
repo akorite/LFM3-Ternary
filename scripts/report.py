@@ -69,14 +69,25 @@ def render(results: Path, plan: str) -> str:
     if bfcl is None:
         out.append("Not measured yet (`results/bfcl.json` missing).")
     else:
-        b16, art = bfcl.get("bf16_score"), bfcl.get("artifact_score")
+        def score(key):
+            entry = bfcl.get(key)
+            return entry.get("score") if isinstance(entry, dict) else entry
+
+        b16, art = score("bf16_score"), score("artifact_score")
         ret = (art / b16) if (b16 and art is not None) else None
         t1v = _load(results / "bfcl_verdict.json") or {}
         ret = t1v.get("avg_retention", ret)
+        provenance = sorted({
+            f"{e.get('harness')} ({e.get('n_samples')} samples)"
+            for e in (bfcl.get("bf16_score"), bfcl.get("artifact_score"))
+            if isinstance(e, dict) and e.get("harness")
+        })
         out += [f"- BF16: {_num(b16, 2)}",
                 f"- ternary: {_num(art, 2)}",
                 f"- retention: {_pct(ret)}",
                 f"- verdict: {t1v.get('verdict', '—')}"]
+        if provenance:
+            out.append(f"- measured by: {'; '.join(provenance)}")
     out.append("")
 
     out += ["## Decode speed (llama-bench, same GPU and settings)", ""]

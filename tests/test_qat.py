@@ -126,11 +126,11 @@ def test_bake_ternary_writes_codes_scales_and_matches_manifest(tmp_path):
     install_qat(model, 8)
     manifest = bake_ternary(model, 8)
     assert len(manifest) == 26
-    assert "model.layers.0.feed_forward.w1.weight" in manifest
+    assert "model.layers.0.feed_forward.w1" in manifest
 
     modules = dict(model.named_modules())
     for name, entry in manifest.items():
-        mod = modules[name.removesuffix(".weight")]
+        mod = modules[name]
         codes = entry["codes"].reshape(*entry["codes"].shape[:1], -1, 8).float()
         baked = (codes * entry["alpha"]).reshape(mod.linear.weight.shape)
         assert torch.allclose(mod.linear.weight, baked, atol=1e-5)

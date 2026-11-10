@@ -73,8 +73,10 @@ def install_qat(model: nn.Module, group_size: int = 128) -> list[str]:
 def bake_ternary(model: nn.Module, group_size: int = 128) -> dict[str, dict]:
     """Replace every wrapped weight by its ternary value and return codes+scales.
 
-    The codes come from the full-precision weights, so the baked values and a
-    later `absmean`-style export of them are the same numbers.
+    The codes are taken from the full-precision weights; exporting that manifest
+    reproduces the baked values exactly. Re-deriving absmean codes from the
+    baked weights does not: mean|w| of a ternary tensor is smaller than the
+    group scale by mean|codes|, so the scales would shrink.
     """
     manifest = {}
     with torch.no_grad():
@@ -84,7 +86,7 @@ def bake_ternary(model: nn.Module, group_size: int = 128) -> dict[str, dict]:
                     continue
                 w = mod.linear.weight
                 g, pad, alpha, codes = _absmean_codes(w.detach(), group_size)
-                manifest[f"{layer_tensor_name(idx, name)}.weight"] = {
+                manifest[layer_tensor_name(idx, name)] = {
                     "codes": codes.reshape(-1, codes.shape[-2], codes.shape[-1]).to(torch.int8),
                     "alpha": alpha.reshape(-1, alpha.shape[-2], alpha.shape[-1]).float(),
                 }
@@ -124,9 +126,10 @@ def _resolve_parent(layer: nn.Module, name: str):
 
 def kd_loss(student_logits: torch.Tensor, teacher_logits: torch.Tensor,
             temperature: float = 2.0) -> torch.Tensor:
-    """KL(student || teacher) on softened logits, scaled by T^2."""
-    s = F.log_softmax(student_logits / temperature, dim=-1)
-    t = F.softmax(teacher_logits / temperature, dim=-1)
+    """Per-token KL(student || teacher) on softened logits, scaled by T^2."""
+    vocab = student_logits.shape[-1]
+    s = F.log_softmax(student_logits.reshape(-1, vocab) / temperature, dim=-1)
+    t = F.softmax(teacher_logits.reshape(-1, vocab) / temperature, dim=-1)
     return F.kl_div(s, t, reduction="batchmean") * temperature * temperature
 
 

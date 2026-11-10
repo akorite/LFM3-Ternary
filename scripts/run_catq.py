@@ -106,7 +106,8 @@ def main() -> None:
     logger.info("wrote checkpoint %s and manifest %s", args.out, manifest)
 
     reloaded = AutoModelForCausalLM.from_pretrained(
-        hf_dir, trust_remote_code=True, torch_dtype=torch.bfloat16)
+        hf_dir, trust_remote_code=True, torch_dtype=torch.bfloat16,
+        device_map=next(model.parameters()).device)
     same = all(torch.equal(a, b) for a, b in
                zip(model.state_dict().values(), reloaded.state_dict().values()))
     meta = {"calib": str(args.calib), "n_batches": len(batches),

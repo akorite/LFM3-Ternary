@@ -267,3 +267,33 @@ def test_absmean_mode_packs_every_matmul(tmp_path):
     assert "blk.0.ffn_up.weight" in names
     assert "token_embd.weight" in names and "output.weight" not in names
     assert kvs["general.file_type"] == 41
+
+
+def test_manifest_from_bake_round_trips_into_export(tmp_path):
+    """The QAT path: bake codes, save the manifest, export reads it back."""
+    from test_lfm3_adapter import _CausalLM, _Inner, _Layer
+    from ternarq.qat import bake_ternary, install_qat, save_ternary_manifest
+
+    torch.manual_seed(7)
+
+    class _Model(_CausalLM):          # same layer types as the export fixture
+        def __init__(self):
+            super().__init__()
+            self.model = _Inner()
+            self.model.layers = torch.nn.ModuleList(
+                [_Layer("conv" if lt == "conv" else "attention", d=H) for lt in LAYER_TYPES])
+            self.lm_head = torch.nn.Linear(H, 128, bias=False)
+            self.lm_head.weight = self.model.embed_tokens.weight
+
+    model = _Model()
+    install_qat(model, 128)
+    manifest = bake_ternary(model, 128)
+    manifest_dir = tmp_path / "ternary"
+    save_ternary_manifest(manifest_dir, manifest, 128)
+
+    ck = _fake_checkpoint(tmp_path)
+    out = tmp_path / "qat-ternary.gguf"
+    export(ck, manifest_dir, out)          # must not raise "absent from checkpoint"
+    _, names, dims, types = _read_gguf_header(out)
+    assert types["blk.2.attn_q.weight"] == 42
+    assert dims["blk.2.attn_q.weight"] == (H, H)
