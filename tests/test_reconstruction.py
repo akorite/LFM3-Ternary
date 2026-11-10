@@ -94,3 +94,34 @@ def test_second_layer_sees_quantized_first_layer():
     during = torch.cat([c.reshape(-1, c.shape[-1]) for c in seen])
     tail = during[-before.shape[0]:]
     assert not torch.equal(before, tail)
+
+
+def test_capture_keeps_inputs_paired_with_their_own_linear():
+    """Every captured chunk must be as wide as the weight that consumes it."""
+    model = ToyStack()
+    batches = _batches()
+    recon = CatqReconstructor(model, group_size=8, epochs=1)
+    for layer in model.model.layers:
+        captured = recon._capture(layer, batches, lambda m, b: m(b))
+        for name, linear in quantizable_linears(layer).items():
+            for chunk in captured[name]:
+                assert chunk.shape[-1] == linear.weight.shape[-1], name
+
+
+def test_shared_input_copies_do_not_alias_across_allocations():
+    """A freed tensor's id can be reused; the cache must not hand back its copy."""
+    cache = {}
+
+    def copy(x):
+        key = id(x)
+        if key not in cache:
+            cache[key] = (x, x.detach().to("cpu"))
+        return cache[key][1]
+
+    first = torch.ones(2, 4)
+    c1 = copy(first)
+    del first
+    second = torch.zeros(2, 4)     # likely reuses the freed id
+    c2 = copy(second)
+    assert c2 is not c1
+    assert c2.sum() == 0 and c1.sum() == 8

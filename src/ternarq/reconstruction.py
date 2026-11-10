@@ -34,14 +34,16 @@ class CatqReconstructor:
         """One forward pass over `batches`; returns linear-name -> input chunks."""
         linears = quantizable_linears(layer)
         captured = {name: [] for name in linears}
-        # several projections share one input tensor per forward; copy it once
-        shared: dict[int, torch.Tensor] = {}
+        shared: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
 
         def _copy(x: torch.Tensor) -> torch.Tensor:
+            """CPU copy of `x`, shared by every projection that reads it."""
             key = id(x)
             if key not in shared:
-                shared[key] = x.detach().to("cpu")
-            return shared[key]
+                # holding the source keeps its id unique: a freed tensor's id can
+                # be reused by the next allocation mid-forward
+                shared[key] = (x, x.detach().to("cpu"))
+            return shared[key][1]
 
         hooks = []
         for name, mod in linears.items():
@@ -62,6 +64,10 @@ class CatqReconstructor:
         if not inputs:
             raise RuntimeError(f"no captured inputs for {name}")
         w = linear.weight
+        if inputs[0].shape[-1] != w.shape[-1]:
+            raise ValueError(
+                f"{name}: captured inputs are {inputs[0].shape[-1]}-wide but the weight "
+                f"expects {w.shape[-1]}")
         params = CatqParams.for_weight(
             w, self.group_size, self.gamma, self.s0, self.delta0)
         opt = torch.optim.AdamW(params.parameters(), lr=self.lr)
