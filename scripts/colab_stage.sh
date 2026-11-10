@@ -45,13 +45,15 @@ cp "$HERE/remote_stage.py" "$CTRL/remote_stage.py"
 
 ARGS_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")"
 
-# Long stages must outlive the CLI connection, so the host runs them detached
-# and this loop polls a small status call until the stage reports back.
-# 900s covers the one-time dependency install; the stage itself runs detached.
-colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 900 \
+# Long stages must outlive the CLI connection: the runner is placed on disk and
+# starts the stage in its own session, so the exec returns in seconds and the
+# poll below watches the host-side log.
+colab upload -s "$SESSION" "$CTRL/remote_stage.py" /content/runner.py >/dev/null
+colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 120 \
   --env "STAGE=$STAGE" \
   --env "STAGE_ARGS=$ARGS_JSON" \
   --env "DETACHED=1" \
+  --env "RUNNER=/content/runner.py" \
   --env "REPO_URL=${REPO_URL:-https://github.com/akorite/LFM3-Ternary}" \
   --env "BRANCH=${BRANCH:-feat/lfm3-ternary}" \
   2>&1 | tee "$LOG" | tail -5
