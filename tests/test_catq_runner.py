@@ -47,3 +47,24 @@ def test_triplet_corpus_requires_tokenizer(tmp_path):
         assert "tokenizer" in str(exc)
     else:
         raise AssertionError("expected a ValueError without an encoder")
+
+
+def test_state_dicts_equal_compares_by_key():
+    from scripts.run_catq import _state_dicts_equal
+    a = {"w": torch.ones(2), "v": torch.zeros(2)}
+    # same keys, same tensors, different ordering: still equal
+    b = {"v": torch.zeros(2), "w": torch.ones(2)}
+    assert _state_dicts_equal(a, b)
+    # a dropped key: not equal, even if remaining values match positionally
+    assert not _state_dicts_equal(a, {"w": torch.ones(2)})
+    # a differing value: not equal
+    assert not _state_dicts_equal(a, {"v": torch.zeros(2), "w": torch.zeros(2)})
+
+
+def test_state_dicts_equal_spots_a_positional_false_match():
+    """The bug the smoke check existed to catch: two tensors with different
+    names that would line up positionally must not count as equal."""
+    from scripts.run_catq import _state_dicts_equal
+    a = {"x": torch.ones(2), "y": torch.zeros(2)}
+    b = {"y": torch.zeros(2), "z": torch.ones(2)}  # reordered + renamed
+    assert not _state_dicts_equal(a, b)

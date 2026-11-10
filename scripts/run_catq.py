@@ -56,6 +56,15 @@ def load_corpus(path: Path, seq_len: int, batch_size: int, encode=None):
         yield data[start:start + batch_size].to(torch.long)
 
 
+def _state_dicts_equal(a: dict, b: dict) -> bool:
+    """Key-ordered comparison: safetensors can drop or rename buffers, so
+    positional pairing would both mask a missing tensor and false-match."""
+    import torch
+    if a.keys() != b.keys():
+        return False
+    return all(torch.equal(a[k], b[k]) for k in a)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--model", default="LiquidAI/LFM3-1.7B")
@@ -109,8 +118,7 @@ def main() -> None:
     reloaded = AutoModelForCausalLM.from_pretrained(
         hf_dir, trust_remote_code=True, torch_dtype=torch.bfloat16,
         device_map=next(model.parameters()).device)
-    same = all(torch.equal(a, b) for a, b in
-               zip(model.state_dict().values(), reloaded.state_dict().values()))
+    same = _state_dicts_equal(model.state_dict(), reloaded.state_dict())
     meta = {"calib": str(args.calib), "n_batches": len(batches),
             "group_size": args.group_size, "epochs": args.epochs,
             "reload_identical": same,
