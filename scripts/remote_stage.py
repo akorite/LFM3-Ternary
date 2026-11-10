@@ -55,12 +55,17 @@ def missing_input(stage: str) -> list[str] | None:
     return None
 
 
+def log_dir(repo: Path) -> Path:
+    """Where stage logs live; outside the repo when the repo is not cloned yet."""
+    return Path(os.environ.get("LOG_DIR", str(repo / "logs")))
+
+
 def log_path(repo: Path, stage: str) -> Path:
-    return repo / "logs" / f"{stage}.log"
+    return log_dir(repo) / f"{stage}.log"
 
 
 def pid_path(repo: Path, stage: str) -> Path:
-    return repo / "logs" / f"{stage}.pid"
+    return log_dir(repo) / f"{stage}.pid"
 
 
 def launch(repo: Path, stage: str, stage_args: list[str]) -> None:
@@ -178,12 +183,11 @@ def main() -> None:
         repo = Path(os.environ.get("REPO_DIR", "/content/LFM3-Ternary"))
         stage = os.environ["STAGE"]
         runner = os.environ.get("RUNNER", str(repo / "runner.py"))
-        (repo / "logs").mkdir(parents=True, exist_ok=True)
+        log_dir(repo).mkdir(parents=True, exist_ok=True)
         log = open(log_path(repo, stage), "w")
         env = {**os.environ, "DETACHED": "0"}
         proc = subprocess.Popen([sys.executable, runner], stdout=log, stderr=subprocess.STDOUT,
                                 start_new_session=True, env=env)
-        (repo / "logs").mkdir(exist_ok=True)
         pid_path(repo, stage).write_text(str(proc.pid))
         print("STAGE_LAUNCHED " + json.dumps({"stage": stage, "pid": proc.pid}), flush=True)
         raise SystemExit(0)
@@ -211,9 +215,8 @@ def main() -> None:
         if pre:
             print("building a missing stage input: " + " ".join(pre), flush=True)
             subprocess.run(pre, cwd=repo, check=True)
-        log_dir = repo / "logs"
-        log_dir.mkdir(exist_ok=True)
-        stage_log = log_dir / f"{stage}.log"
+        log_dir(repo).mkdir(parents=True, exist_ok=True)
+        stage_log = log_path(repo, stage)
         rc = 0
         lines: list[str] = []
         with open(stage_log, "w") as log:

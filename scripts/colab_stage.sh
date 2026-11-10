@@ -53,7 +53,7 @@ colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 120 \
   --env "STAGE=$STAGE" \
   --env "STAGE_ARGS=$ARGS_JSON" \
   --env "DETACHED=1" \
-  --env "RUNNER=/content/runner.py" \
+  --env "RUNNER=/content/runner.py" --env "LOG_DIR=/content/logs" \
   --env "REPO_URL=${REPO_URL:-https://github.com/akorite/LFM3-Ternary}" \
   --env "BRANCH=${BRANCH:-feat/lfm3-ternary}" \
   2>&1 | tee "$LOG" | tail -5
@@ -74,6 +74,7 @@ ELAPSED=0
 while :; do
   OUT="$(colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 180 \
         --env "STAGE=status" --env "STAGE_ARGS=[\"$STAGE\"]" --env "DETACHED=0" \
+        --env "LOG_DIR=/content/logs" \
         --env "REPO_DIR=/content/LFM3-Ternary" --env "SKIP_SYNC=1" --env "SKIP_INSTALL=1" \
         2>&1)"
   STATE="$(printf '%s\n' "$OUT" | grep '^{' | tail -1)"
@@ -96,7 +97,7 @@ print(("running" if d["running"] else "stopped"), "| artifacts:", d["artifacts"]
 done
 
 # the detached run writes its own log on the host; fetch it for the local record
-colab download -s "$SESSION" "/content/LFM3-Ternary/logs/$STAGE.log" "$LOG" >/dev/null 2>&1 \
+colab download -s "$SESSION" "/content/logs/$STAGE.log" "$LOG" >/dev/null 2>&1 \
   || echo "could not fetch the remote stage log" >&2
 
 if [[ "$SYNC_DOWN" != "1" ]]; then
