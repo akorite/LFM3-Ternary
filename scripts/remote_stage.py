@@ -232,8 +232,8 @@ def main() -> None:
             print("".join(lines[-40:]), flush=True)
         found = [a for a in ARTIFACTS[stage] if (repo / a).exists()]
         print("STAGE_RESULT " + json.dumps({"stage": stage, "returncode": rc,
-                                            "log": str(stage_log.relative_to(repo)),
-                                            "artifacts": found + [str(stage_log.relative_to(repo))]}),
+                                            "log": str(stage_log),
+                                            "artifacts": found + [str(stage_log)]}),
               flush=True)
         raise SystemExit(rc)
 

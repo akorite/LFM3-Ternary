@@ -54,6 +54,7 @@ colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 120 \
   --env "STAGE_ARGS=$ARGS_JSON" \
   --env "DETACHED=1" \
   --env "RUNNER=/content/runner.py" --env "LOG_DIR=/content/logs" \
+  --env "SKIP_SYNC=0" --env "SKIP_INSTALL=0" \
   --env "REPO_URL=${REPO_URL:-https://github.com/akorite/LFM3-Ternary}" \
   --env "BRANCH=${BRANCH:-feat/lfm3-ternary}" \
   2>&1 | tee "$LOG" | tail -5
