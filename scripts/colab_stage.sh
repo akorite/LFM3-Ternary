@@ -45,12 +45,57 @@ cp "$HERE/remote_stage.py" "$CTRL/remote_stage.py"
 
 ARGS_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")"
 
-colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout "$TIMEOUT" \
+# Long stages must outlive the CLI connection, so the host runs them detached
+# and this loop polls a small status call until the stage reports back.
+# 900s covers the one-time dependency install; the stage itself runs detached.
+colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 900 \
   --env "STAGE=$STAGE" \
   --env "STAGE_ARGS=$ARGS_JSON" \
+  --env "DETACHED=1" \
   --env "REPO_URL=${REPO_URL:-https://github.com/akorite/LFM3-Ternary}" \
   --env "BRANCH=${BRANCH:-feat/lfm3-ternary}" \
-  2>&1 | tee "$LOG"
+  2>&1 | tee "$LOG" | tail -5
+
+python3 - "$LOG" <<'PY'
+import json, sys
+launched = False
+for line in open(sys.argv[1], errors="replace"):
+    if line.startswith("STAGE_LAUNCHED "):
+        print(json.loads(line[len("STAGE_LAUNCHED "):])["stage"], "launched")
+        launched = True
+        break
+sys.exit(0 if launched else 1)
+PY
+[[ $? -eq 0 ]] || { echo "stage $STAGE did not start; see $LOG" >&2; exit 1; }
+
+ELAPSED=0
+while :; do
+  OUT="$(colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout 180 \
+        --env "STAGE=status" --env "STAGE_ARGS=[\"$STAGE\"]" \
+        --env "REPO_DIR=/content/LFM3-Ternary" --env "SKIP_SYNC=1" --env "SKIP_INSTALL=1" \
+        2>&1)"
+  STATE="$(printf '%s\n' "$OUT" | grep '^{' | tail -1)"
+  printf '%s\n' "$OUT" >> "$LOG"
+  printf '%s\n' "$STATE" | python3 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+if not raw:
+    print("no status"); raise SystemExit(0)
+d = json.loads(raw)
+print(("running" if d["running"] else "stopped"), "| artifacts:", d["artifacts"])
+' 
+  printf '%s\n' "$STATE" | grep -q '"running": false' && break
+  sleep 60
+  ELAPSED=$((ELAPSED + 60))
+  if [[ "$ELAPSED" -ge "$TIMEOUT" ]]; then
+    echo "stage $STAGE still running after ${TIMEOUT}s; log is on the host at logs/$STAGE.log" >&2
+    exit 1
+  fi
+done
+
+# the detached run writes its own log on the host; fetch it for the local record
+colab download -s "$SESSION" "/content/LFM3-Ternary/logs/$STAGE.log" "$LOG" >/dev/null 2>&1 \
+  || echo "could not fetch the remote stage log" >&2
 
 if [[ "$SYNC_DOWN" != "1" ]]; then
   echo "artifacts left on the VM (SYNC_DOWN=0); stage log above"

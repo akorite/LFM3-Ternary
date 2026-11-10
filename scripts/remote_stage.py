@@ -40,6 +40,7 @@ ARTIFACTS = {
     "census": [],
     "report": ["REPORT.md"],
     "pipeline": ["results", "REPORT.md"],
+    "status": [],
 }
 
 
@@ -52,6 +53,48 @@ def missing_input(stage: str) -> list[str] | None:
         return [py, "scripts/build_calib_ayot.py", "--model", MODEL,
                 "--out-dir", AYOT_CORPUS, "--tokens", "4000000"]
     return None
+
+
+def log_path(repo: Path, stage: str) -> Path:
+    return repo / "logs" / f"{stage}.log"
+
+
+def pid_path(repo: Path, stage: str) -> Path:
+    return repo / "logs" / f"{stage}.pid"
+
+
+def launch(repo: Path, stage: str, stage_args: list[str]) -> None:
+    """Start the stage detached so a dropped CLI connection does not kill it."""
+    (repo / "logs").mkdir(exist_ok=True)
+    cmd = stage_command(stage, stage_args)
+    env = {**os.environ, "DETACHED": "0"}
+    with open(log_path(repo, stage), "w") as log:
+        proc = subprocess.Popen(cmd, cwd=repo, stdout=log, stderr=subprocess.STDOUT,
+                                start_new_session=True, env=env)
+    pid_path(repo, stage).write_text(str(proc.pid))
+    print("STAGE_LAUNCHED " + json.dumps({"stage": stage, "pid": proc.pid,
+                                          "log": str(log_path(repo, stage).relative_to(repo))}),
+          flush=True)
+
+
+def watch_state(repo: Path, stage: str) -> dict:
+    """Whether a detached stage is still running, and what it has produced."""
+    log = log_path(repo, stage)
+    pid_file = pid_path(repo, stage)
+    pid = int(pid_file.read_text()) if pid_file.exists() else None
+    alive = False
+    if pid:
+        try:
+            os.kill(pid, 0)
+            alive = True
+        except OSError:
+            alive = False
+    tail = ""
+    if log.exists():
+        with open(log, errors="replace") as fh:
+            tail = "".join(fh.readlines()[-15:])
+    found = [a for a in ARTIFACTS.get(stage, []) if (repo / a).exists()]
+    return {"stage": stage, "running": alive, "log_tail": tail, "artifacts": found}
 
 
 def _arg(args: list[str], index: int, default: str) -> str:
@@ -86,6 +129,7 @@ def stage_command(stage: str, args: list[str]) -> list[str]:
                            "--census"],
         "report": lambda: [py, "scripts/report.py", "--out", "REPORT.md"],
         "pipeline": lambda: [py, "scripts/run_pipeline.py", *extra],
+        "status": lambda: [py, "-c", "pass"],
     }
     if stage not in table:
         raise SystemExit(f"unknown stage {stage!r}; known: {sorted(table)}")
@@ -139,8 +183,15 @@ def main() -> None:
             if os.environ.get("SKIP_SYNC") != "1" else None
         if os.environ.get("SKIP_INSTALL") != "1":
             install(repo)
+        if stage == "status":
+            print(json.dumps(watch_state(repo, stage_args[0] if stage_args else "")), flush=True)
+            raise SystemExit(0)
+
         cmd = stage_command(stage, stage_args)
         print(json.dumps({"stage": stage, "head": head, "command": cmd}), flush=True)
+        if os.environ.get("DETACHED") == "1":
+            launch(repo, stage, stage_args)
+            raise SystemExit(0)
         pre = missing_input(stage)
         if pre:
             print("building a missing stage input: " + " ".join(pre), flush=True)
