@@ -1,0 +1,29 @@
+[{"stream_name":"stderr","time":1.076549081,"data":"Cloning into '/kaggle/working/LFM3-Ternary'...\n"}
+,{"stream_name":"stderr","time":33.361799565,"data":"fatal: unable to access 'https://github.com/akorite/LFM3-Ternary/': Could not resolve host: github.com\n"}
+,{"stream_name":"stderr","time":33.376390106,"data":"Traceback (most recent call last):\n"}
+,{"stream_name":"stderr","time":33.377547826,"data":"  File \"/kaggle/src/script.py\", line 281, in \u003cmodule\u003e\n"}
+,{"stream_name":"stderr","time":33.377584926,"data":"    main()\n"}
+,{"stream_name":"stderr","time":33.377589026,"data":"    ~~~~^^\n"}
+,{"stream_name":"stderr","time":33.377591836,"data":"  File \"/kaggle/src/script.py\", line 199, in main\n"}
+,{"stream_name":"stderr","time":33.377594926,"data":"    head = sync_repo(repo, os.environ.get(\"REPO_URL\",\n"}
+,{"stream_name":"stderr","time":33.377598346,"data":"           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":33.377600896,"data":"                                          \"https://github.com/akorite/LFM3-Ternary\"),\n"}
+,{"stream_name":"stderr","time":33.377603246,"data":"                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":33.377605266,"data":"                     os.environ.get(\"BRANCH\", \"feat/lfm3-ternary\")) \\\n"}
+,{"stream_name":"stderr","time":33.377607476,"data":"                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":33.377609506,"data":"  File \"/kaggle/src/script.py\", line 147, in sync_repo\n"}
+,{"stream_name":"stderr","time":33.377611546,"data":"    subprocess.run([\"git\", \"clone\", \"--branch\", branch, \"--depth\", \"1\", url, str(repo)],\n"}
+,{"stream_name":"stderr","time":33.377613986,"data":"    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":33.377615996,"data":"                   check=True)\n"}
+,{"stream_name":"stderr","time":33.377618346,"data":"                   ^^^^^^^^^^^\n"}
+,{"stream_name":"stderr","time":33.377621496,"data":"  File \"/usr/lib/python3.13/subprocess.py\", line 578, in run\n"}
+,{"stream_name":"stderr","time":33.377624806,"data":"    raise CalledProcessError(retcode, process.args,\n"}
+,{"stream_name":"stderr","time":33.377628056,"data":"                             output=stdout, stderr=stderr)\n"}
+,{"stream_name":"stderr","time":33.377631506,"data":"subprocess.CalledProcessError: Command '['git', 'clone', '--branch', 'feat/lfm3-ternary', '--depth', '1', 'https://github.com/akorite/LFM3-Ternary', '/kaggle/working/LFM3-Ternary']' returned non-zero exit status 128.\n"}
+,{"stream_name":"stderr","time":36.139110838,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":36.139162918,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":36.632874763,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":36.632923653,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":38.815083337,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":40.195414149,"data":"[NbConvertApp] Writing 338155 bytes to __results__.html\n"}
+]

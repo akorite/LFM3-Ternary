@@ -86,6 +86,13 @@ exists (the ternary kernels live in the PrismML fork); they take the GGUF and a
 stay internally comparable while absolute scores are not directly comparable to
 BitTern's table.
 
+## Kaggle needs internet
+
+A Kaggle kernel only reaches GitHub and the Hugging Face Hub when the account is
+phone-verified and `enable_internet` is honoured; unverified accounts get
+`Could not resolve host: github.com` and cannot run any stage. Colab always has
+network. Check with one trivial kernel before queueing a multi-hour one.
+
 ## When a host is unavailable
 
 Both providers can refuse work without failing loudly: a Colab `new` can time
