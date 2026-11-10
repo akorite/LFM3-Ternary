@@ -77,6 +77,15 @@ hours, so the QAT rung's resumable checkpoints matter there.
 exists (the ternary kernels live in the PrismML fork); they take the GGUF and a
 `LLAMA_CLI` / llama-bench path, so run them on the VM after `export`.
 
+## Harness pin
+
+`lm-eval==0.4.13`, not the `0.4.7` the published CAT-Q numbers used: 0.4.7 reads
+`transformers.AutoModelForVision2Seq` at import, which no longer exists in the
+`transformers>=5.12` release LFM3 needs. Task set, `--num_fewshot 0` and
+`--seed 2` are unchanged, and baseline and rungs share the pin, so retentions
+stay internally comparable while absolute scores are not directly comparable to
+BitTern's table.
+
 ## When a host is unavailable
 
 Both providers can refuse work without failing loudly: a Colab `new` can time

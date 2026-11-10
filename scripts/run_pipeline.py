@@ -86,6 +86,10 @@ def main() -> None:
     passed_rung = None
     for rung in range(args.start_rung, 4):
         scores = f"results/rung{rung}.json"
+        if rung == 2 and not exists("data", "calib", "ayot", "ayot-000.jsonl"):
+            if run([sys.executable, "scripts/build_calib_ayot.py", "--model", args.model,
+                    "--out-dir", "data/calib/ayot", "--tokens", "4000000"]) != 0:
+                raise SystemExit("AYOT calibration build failed")
         if not exists(scores):
             calib = ("data/calib/c4_512x2048.pt" if rung == 1 else "data/calib/ayot")
             if rung == 3:
@@ -119,10 +123,6 @@ def main() -> None:
             raise SystemExit(f"killed at rung {rung}; REPORT.md records the evidence")
         if remaining == 0:
             raise SystemExit("no rung remains")
-        if rung == 2 and not exists("data", "calib", "ayot", "manifest.json"):
-            if run([sys.executable, "scripts/build_calib_ayot.py", "--model", args.model,
-                    "--out-dir", "data/calib/ayot", "--tokens", "4000000"]) != 0:
-                raise SystemExit("AYOT calibration build failed")
 
     if passed_rung is None:
         raise SystemExit("no rung passed")

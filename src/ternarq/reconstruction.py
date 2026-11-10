@@ -34,13 +34,23 @@ class CatqReconstructor:
         """One forward pass over `batches`; returns linear-name -> input chunks."""
         linears = quantizable_linears(layer)
         captured = {name: [] for name in linears}
+        # several projections share one input tensor per forward; copy it once
+        shared: dict[int, torch.Tensor] = {}
+
+        def _copy(x: torch.Tensor) -> torch.Tensor:
+            key = id(x)
+            if key not in shared:
+                shared[key] = x.detach().to("cpu")
+            return shared[key]
+
         hooks = []
         for name, mod in linears.items():
             def _hook(_m, args, _name=name):
-                captured[_name].append(args[0].detach().to("cpu"))
+                captured[_name].append(_copy(args[0]))
             hooks.append(mod.register_forward_pre_hook(_hook))
         try:
             for batch in batches:
+                shared.clear()
                 forward_fn(self.model, batch)
         finally:
             for h in hooks:

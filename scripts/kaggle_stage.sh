@@ -13,6 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"
 STAGE="${1:?usage: kaggle_stage.sh <stage> [stage args...]}"
 shift || true
+[[ "${1:-}" == "--" ]] && shift   # runbook form: <stage> -- args...
 
 USER_NAME="${KAGGLE_USER:-$(kaggle config view 2>/dev/null | awk '/- username:/ {print $3}')}"
 [[ -n "$USER_NAME" ]] || { echo "set KAGGLE_USER or run 'kaggle config set -n username'" >&2; exit 1; }
@@ -51,7 +52,7 @@ python3 - "$HERE/remote_stage.py" "$WORK/$SLUG/stage.py" "$STAGE" "$@" <<'PY'
 import json, sys
 src, dst, stage, *stage_args = sys.argv[1:]
 body = open(src).read()
-body = body.replace('import argparse\n', 'import argparse\n')
+body = body.replace('\nif __name__ == "__main__":\n    main()\n', '\n')
 body += f'''
 
 # Kaggle entry point: cwd is /kaggle/working, which is also the output root.
@@ -77,7 +78,8 @@ for _ in $(seq 1 $((TIMEOUT * 2))); do
     *error*|*ERROR*|*cancel*|*CANCEL*)
       kaggle kernels output "$USER_NAME/$SLUG" -p "$WORK/out" || true
       echo "kernel failed: $STATE" >&2
-      tail -n 60 "$WORK/out"/* 2>/dev/null || true
+      cp -R "$WORK/out" "$ROOT/logs/kaggle-$STAGE-$SLUG" 2>/dev/null || true
+      tail -n 80 "$WORK/out"/* 2>/dev/null || true
       exit 1 ;;
   esac
   sleep 30

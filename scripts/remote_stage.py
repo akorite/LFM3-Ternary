@@ -43,6 +43,17 @@ ARTIFACTS = {
 }
 
 
+def missing_input(stage: str) -> list[str] | None:
+    """The build command a stage needs first when its input is absent, if any."""
+    py = sys.executable
+    if stage == "rung1" and not Path(C4_CORPUS).exists():
+        return [py, "scripts/build_calib_c4.py", "--model", MODEL, "--out-dir", "data/calib"]
+    if stage == "rung2" and not Path(AYOT_CORPUS, "ayot-000.jsonl").exists():
+        return [py, "scripts/build_calib_ayot.py", "--model", MODEL,
+                "--out-dir", AYOT_CORPUS, "--tokens", "4000000"]
+    return None
+
+
 def _arg(args: list[str], index: int, default: str) -> str:
     return args[index] if len(args) > index else default
 
@@ -130,11 +141,32 @@ def main() -> None:
             install(repo)
         cmd = stage_command(stage, stage_args)
         print(json.dumps({"stage": stage, "head": head, "command": cmd}), flush=True)
-        done = subprocess.run(cmd, cwd=repo)
+        pre = missing_input(stage)
+        if pre:
+            print("building a missing stage input: " + " ".join(pre), flush=True)
+            subprocess.run(pre, cwd=repo, check=True)
+        log_dir = repo / "logs"
+        log_dir.mkdir(exist_ok=True)
+        log_path = log_dir / f"{stage}.log"
+        rc = 0
+        lines: list[str] = []
+        with open(log_path, "w") as log:
+            proc = subprocess.Popen(cmd, cwd=repo, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in proc.stdout:
+                print(line, end="", flush=True)
+                log.write(line)
+                lines.append(line)
+            rc = proc.wait()
+        if rc != 0:
+            print("--- last lines of " + str(log_path) + " ---", flush=True)
+            print("".join(lines[-40:]), flush=True)
         found = [a for a in ARTIFACTS[stage] if (repo / a).exists()]
-        print("STAGE_RESULT " + json.dumps({"stage": stage, "returncode": done.returncode,
-                                            "artifacts": found}), flush=True)
-        raise SystemExit(done.returncode)
+        print("STAGE_RESULT " + json.dumps({"stage": stage, "returncode": rc,
+                                            "log": str(log_path.relative_to(repo)),
+                                            "artifacts": found + [str(log_path.relative_to(repo))]}),
+              flush=True)
+        raise SystemExit(rc)
 
     argv = sys.argv[1:]
     passthrough: list[str] = []

@@ -28,6 +28,7 @@ done
 
 STAGE="${1:?usage: colab_stage.sh [--session NAME] [--gpu A100] [--new] <stage> [stage args...]}"
 shift || true
+[[ "${1:-}" == "--" ]] && shift   # runbook form: <stage> -- args...
 
 if [[ "$CREATE" == "1" ]]; then
   colab stop -s "$SESSION" >/dev/null 2>&1 || true
@@ -37,6 +38,8 @@ fi
 # The stage script lives in the repo, so it is uploaded from this checkout and
 # syncs the remote clone itself.
 CTRL="$(mktemp -d)"
+mkdir -p "$ROOT/logs"
+LOG="$ROOT/logs/colab-$STAGE.log"
 trap 'rm -rf "$CTRL"' EXIT
 cp "$HERE/remote_stage.py" "$CTRL/remote_stage.py"
 
@@ -47,7 +50,7 @@ colab exec -s "$SESSION" -f "$CTRL/remote_stage.py" --timeout "$TIMEOUT" \
   --env "STAGE_ARGS=$ARGS_JSON" \
   --env "REPO_URL=${REPO_URL:-https://github.com/akorite/LFM3-Ternary}" \
   --env "BRANCH=${BRANCH:-feat/lfm3-ternary}" \
-  2>&1 | tee "$CTRL/stage.log"
+  2>&1 | tee "$LOG"
 
 if [[ "$SYNC_DOWN" != "1" ]]; then
   echo "artifacts left on the VM (SYNC_DOWN=0); stage log above"
@@ -55,7 +58,7 @@ if [[ "$SYNC_DOWN" != "1" ]]; then
 fi
 
 # Artifact list is echoed by the stage runner; download whatever exists.
-python3 - "$CTRL/stage.log" > "$CTRL/artifacts.txt" <<'PY'
+python3 - "$LOG" > "$CTRL/artifacts.txt" <<'PY'
 import json, sys
 for line in open(sys.argv[1], errors="replace"):
     if line.startswith("STAGE_RESULT "):
@@ -63,6 +66,7 @@ for line in open(sys.argv[1], errors="replace"):
             print(a)
 PY
 mkdir -p "$ROOT/results" "$ROOT/gguf"
+FAILED=0
 while read -r artifact; do
   [[ -z "$artifact" ]] && continue
   if [[ "$artifact" == "results" ]]; then
@@ -70,12 +74,18 @@ while read -r artifact; do
              rung3.json rung3_verdict.json rung_eval.json bfcl.json bfcl_verdict.json \
              benchmarks.json artifact.json; do
       colab download -s "$SESSION" "/content/LFM3-Ternary/results/$f" "$ROOT/results/$f" \
-        >/dev/null 2>&1 || true
+        >/dev/null 2>&1 || true      # optional per-file: not every stage writes all of them
     done
-  else
-    mkdir -p "$(dirname "$ROOT/$artifact")"
-    colab download -s "$SESSION" "/content/LFM3-Ternary/$artifact" "$ROOT/$artifact" \
-      || echo "could not download $artifact" >&2
+    continue
+  fi
+  mkdir -p "$(dirname "$ROOT/$artifact")"
+  if ! colab download -s "$SESSION" "/content/LFM3-Ternary/$artifact" "$ROOT/$artifact"; then
+    echo "could not download $artifact" >&2
+    FAILED=$((FAILED + 1))
   fi
 done < "$CTRL/artifacts.txt"
+if [[ "$FAILED" != "0" ]]; then
+  echo "$FAILED artifact(s) failed to download; the stage log is $LOG" >&2
+  exit 1
+fi
 echo "downloaded into $ROOT"
