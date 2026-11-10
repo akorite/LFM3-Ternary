@@ -156,3 +156,15 @@ def test_resume_skips_fitted_tensors_and_reproduces_weights(tmp_path):
         assert torch.equal(model_b.get_parameter(n), w), n
     # manifest survives too
     assert rb.manifest["tensors"].keys() == ra.manifest["tensors"].keys()
+
+
+def test_fit_survives_extreme_d_alpha_drift():
+    """alpha_eff must never collapse to 0: in bf16, tanh saturates at -1 for
+    d_alpha < ~-4, which turned w_hat into inf and NaN'd a 6-hour rung."""
+    from ternarq.quantizer import CatqParams, ternarize_weight
+    w = torch.randn(64, 128, dtype=torch.bfloat16)
+    p = CatqParams.for_weight(w, 8, 0.8, 30.0, 0.5)
+    with torch.no_grad():
+        p.d_alpha.fill_(-50.0)
+    for t in (0.1, 0.9, 1.0):
+        assert torch.isfinite(ternarize_weight(w, p, t)).all()

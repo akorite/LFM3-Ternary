@@ -78,7 +78,10 @@ class CatqParams(nn.Module):
         d_alpha = self.d_alpha.reshape(shape)
         d_delta = self.d_delta.reshape(shape)
         mu_eff = self.mu0 + torch.tanh(d_mu) * self.alpha0
-        alpha_eff = self.alpha0 * (1 + torch.tanh(d_alpha))
+        # (1 + tanh) collapses to 0 once tanh saturates at exactly -1 — in bf16
+        # that is d_alpha < ~-4 — and alpha_eff = 0 turns w_hat into inf/NaN.
+        # Clamp the factor so alpha_eff keeps >=5% of its anchor.
+        alpha_eff = self.alpha0 * (1 + torch.tanh(d_alpha)).clamp_min(0.05)
         delta_eff = (self.delta0 * (1 + torch.tanh(d_delta))).clamp(1e-2, 1.5)
         return g, pad, mu_eff, alpha_eff, delta_eff
 
