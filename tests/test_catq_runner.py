@@ -1,0 +1,51 @@
+"""Corpus loading for the PTQ rung: token tensors and AYOT triplet shards."""
+import json
+import sys
+from pathlib import Path
+
+import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+from run_catq import load_corpus
+
+
+def test_tensor_corpus_chunks_into_sequences(tmp_path):
+    p = tmp_path / "c4.pt"
+    torch.save(torch.arange(40, dtype=torch.int32), p)
+    batches = list(load_corpus(p, seq_len=8, batch_size=2))
+    assert [b.shape for b in batches] == [(2, 8), (2, 8), (1, 8)]
+
+
+def test_2d_tensor_corpus_passes_through(tmp_path):
+    p = tmp_path / "c4.pt"
+    torch.save(torch.zeros((3, 8), dtype=torch.int32), p)
+    batches = list(load_corpus(p, seq_len=8, batch_size=2))
+    assert [b.shape for b in batches] == [(2, 8), (1, 8)]
+
+
+def test_triplet_shards_are_tokenized(tmp_path):
+    d = tmp_path / "ayot"
+    d.mkdir()
+    trip = {"question": "q", "trace": "t", "answer": "a"}
+    (d / "ayot-000.jsonl").write_text(json.dumps(trip) + "\n" + json.dumps(trip) + "\n")
+    seen = []
+
+    def encode(text):
+        seen.append(text)
+        return [1, 2, 3, 4, 5, 6, 7, 8]
+
+    batches = list(load_corpus(d, seq_len=8, batch_size=1, encode=encode))
+    assert len(seen) == 2 and seen[0] == "q\nt\na"   # question, trace, answer joined
+    assert len(batches) == 2 and batches[0][0].tolist() == [1, 2, 3, 4, 5, 6, 7, 8]
+
+
+def test_triplet_corpus_requires_tokenizer(tmp_path):
+    f = tmp_path / "x.jsonl"
+    f.write_text(json.dumps({"question": "q", "trace": "t", "answer": "a"}) + "\n")
+    try:
+        list(load_corpus(f, seq_len=4, batch_size=1))
+    except ValueError as exc:
+        assert "tokenizer" in str(exc)
+    else:
+        raise AssertionError("expected a ValueError without an encoder")
