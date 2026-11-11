@@ -35,7 +35,7 @@ ARTIFACTS = {
     "rung1": ["checkpoints/rung1/rung.json", "checkpoints/rung1/ternary/ternary_codes.pt",        "checkpoints/rung1/ternary/tensors"],
     "rung2": ["checkpoints/rung2/rung.json", "checkpoints/rung2/ternary/ternary_codes.pt",        "checkpoints/rung2/ternary/tensors"],
     "qat": ["checkpoints/rung3/qat.json", "checkpoints/rung3/ternary/ternary_codes.pt"],
-    "eval": ["results/rung_eval.json"],
+    "eval": ["results"],
     "bfcl": ["results/bfcl.json"],
     "export": [TERNARY_GGUF, "results/artifact.json"],
     "census": [],
@@ -107,6 +107,12 @@ def _arg(args: list[str], index: int, default: str) -> str:
     return args[index] if len(args) > index else default
 
 
+def _eval_output(extra: list[str]) -> str:
+    """'rung1' -> results/rung1.json; an explicit path passes through."""
+    out = _arg(extra, 1, "rung_eval")
+    return out if out.endswith(".json") else f"results/{out}.json"
+
+
 def stage_command(stage: str, args: list[str]) -> list[str]:
     """The argv that carries out `stage` inside the repository root."""
     py = sys.executable
@@ -125,8 +131,10 @@ def stage_command(stage: str, args: list[str]) -> list[str]:
         "qat": lambda: [py, "scripts/train_qat.py",
                         "--model", extra[0] if extra else "checkpoints/rung2/hf",
                         "--data", QAT_CORPUS, "--out", "checkpoints/rung3"],
+        # eval <model-or-checkpoint> [rung name or output path]; report.py and
+        # run_pipeline read results/rungN.json, so a bare name lands there
         "eval": lambda: ["bash", "scripts/eval_lm_eval.sh", _arg(extra, 0, MODEL),
-                         _arg(extra, 1, "results/rung_eval.json")],
+                         _eval_output(extra)],
         "bfcl": lambda: ["bash", "scripts/eval_bfcl.sh", _arg(extra, 0, MODEL),
                          _arg(extra, 1, "artifact")],
         "export": lambda: [py, "scripts/export_gguf.py", "--model", _arg(extra, 0, MODEL),

@@ -115,3 +115,10 @@ def test_seed_banked_noop_without_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("BANKED_DIR", raising=False)
     import remote_stage
     assert remote_stage.seed_banked(tmp_path / "repo", "rung1") == 0
+
+
+def test_eval_stage_names_the_rung_not_the_stage():
+    cmd = remote_stage.stage_command("eval", ["checkpoints/rung1/hf", "rung1"])
+    assert cmd[-1] == "results/rung1.json"
+    cmd = remote_stage.stage_command("eval", ["checkpoints/rung2/hf"])
+    assert cmd[-1] == "results/rung_eval.json"
