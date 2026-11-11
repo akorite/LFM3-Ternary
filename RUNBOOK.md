@@ -95,6 +95,11 @@ network. Check with one trivial kernel before queueing a multi-hour one.
 
 ## Measured cost (first run, A100)
 
+Note: "1.58 bits/param" is the weight budget, not the file size. The packed
+tensor is q2_0 at ~2.125 bits/weight plus an fp16 group scale (~295 MB of
+codes+alpha across ~1.1B quantized params), on top of bf16 embeddings and
+norms/conv — the GGUF lands near ~1 GB, not ~220 MB.
+
 - baseline lm-eval (5 tasks, zero-shot): ~20 min on A100
 - rung 1 CAT-Q fit (512 × 2048 C4, 60 epochs, ~100 tensors): ~5.5–6 h on A100,
   ~15 min per decoder layer, the 2048×7680 MLP linears dominating
