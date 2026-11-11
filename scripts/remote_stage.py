@@ -185,6 +185,29 @@ def seed_banked(repo: Path, stage: str) -> int:
     return n
 
 
+def seed_repo_dir(repo: Path) -> int:
+    """Copy a mounted seed tree (e.g. a Kaggle dataset holding
+    checkpoints/rungN/hf) into the repo, missing files only — a fresh
+    kernel can then skip the rung and go straight to eval."""
+    src = os.environ.get("SEED_REPO_DIR")
+    if not src or not Path(src).is_dir():
+        return 0
+    n = 0
+    for f in Path(src).rglob("*"):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(src)
+        dst = repo / rel
+        if dst.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, dst)
+        n += 1
+    if n:
+        print(f"seeded {n} files from {src}", flush=True)
+    return n
+
+
 def install(repo: Path) -> None:
     # a marker keeps repeated stages from re-resolving the environment
     marker = repo / ".deps-installed"
@@ -238,6 +261,7 @@ def main() -> None:
             raise SystemExit(0)
 
         seed_banked(repo, stage)
+        seed_repo_dir(repo)
         cmd = stage_command(stage, stage_args)
         print(json.dumps({"stage": stage, "head": head, "command": cmd}), flush=True)
         if os.environ.get("DETACHED") == "1":

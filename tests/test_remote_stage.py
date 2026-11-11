@@ -122,3 +122,18 @@ def test_eval_stage_names_the_rung_not_the_stage():
     assert cmd[-1] == "results/rung1.json"
     cmd = remote_stage.stage_command("eval", ["checkpoints/rung2/hf"])
     assert cmd[-1] == "results/rung_eval.json"
+
+
+def test_seed_repo_dir_copies_missing_tree_files(tmp_path, monkeypatch):
+    src = tmp_path / "seed" / "checkpoints" / "rung1" / "hf"
+    src.mkdir(parents=True)
+    (src / "config.json").write_text("{}")
+    (src / "model.safetensors").write_bytes(b"w")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("SEED_REPO_DIR", str(tmp_path / "seed"))
+    import remote_stage
+    assert remote_stage.seed_repo_dir(repo) == 2
+    assert (repo / "checkpoints/rung1/hf/config.json").exists()
+    # a second call copies nothing new
+    assert remote_stage.seed_repo_dir(repo) == 0
