@@ -109,8 +109,12 @@ network. Check with one trivial kernel before queueing a multi-hour one.
   kept here because the same pattern in any future modulation code will kill
   hours just as silently
 - measured per-tensor rate on A100 (rung1 log): conv 109s, attn ~110s,
-  feed_forward 150-300s => ~5.5-6h per 153-tensor rung, ~35-40 CU; the
-  resume point after the first interrupted attempt is layer 7
+  feed_forward 150-300s => ~5.5-6h per 153-tensor rung, ~35-40 CU
+- T4 is ~16x slower than A100 on this workload (measured 53.9ms vs ~3.3ms
+  per 4096x2048x7680 matmul): the same rung is ~50-75h on T4, i.e. 5+
+  12h-capped Kaggle kernels and ~2-3 weekly quota cycles — T4 is a
+  bank-while-free path, not a finish path; a ~34 CU Colab top-up ends it
+- resume point after the first interrupted attempt is layer 7
 
 ## When a host is unavailable
 
