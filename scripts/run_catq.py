@@ -116,9 +116,11 @@ def main() -> None:
     manifest = recon.save_manifest(args.out / "ternary")
     logger.info("wrote checkpoint %s and manifest %s", args.out, manifest)
 
+    # CPU keeps the check off the card: two resident model copies OOM a 16GB
+    # GPU, and equality is dtype/device-agnostic
     reloaded = AutoModelForCausalLM.from_pretrained(
         hf_dir, trust_remote_code=True, torch_dtype=torch.bfloat16,
-        device_map=next(model.parameters()).device)
+        device_map="cpu")
     same = _state_dicts_equal(model.state_dict(), reloaded.state_dict())
     meta = {"calib": str(args.calib), "n_batches": len(batches),
             "group_size": args.group_size, "epochs": args.epochs,

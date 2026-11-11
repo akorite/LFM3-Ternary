@@ -28,6 +28,8 @@ mkdir -p "$WORK/$SLUG"
 python3 - "$WORK/$SLUG/kernel-metadata.json" "$USER_NAME" "$SLUG" "$ACCELERATOR" "$TIMEOUT" <<'PY'
 import json, sys
 path, user, slug, accelerator, timeout = sys.argv[1:6]
+import os
+datasets = [d for d in os.environ.get("KAGGLE_DATASETS", "").split(",") if d]
 json.dump({
     "id": f"{user}/{slug}",
     "title": slug,
@@ -40,7 +42,7 @@ json.dump({
     "enable_internet": True,
     "accelerator": accelerator,
     "timeout": int(timeout),
-    "dataset_sources": [],
+    "dataset_sources": datasets,
     "competition_sources": [],
     "kernel_sources": [],
 }, open(path, "w"), indent=1)
@@ -61,6 +63,9 @@ _os.chdir("/kaggle/working")
 _os.environ["STAGE"] = {stage!r}
 _os.environ["STAGE_ARGS"] = {json.dumps(stage_args)!r}
 _os.environ["REPO_DIR"] = "/kaggle/working/LFM3-Ternary"
+_banked = {json.dumps([d for d in __import__("os").environ.get("KAGGLE_DATASETS", "").split(",") if d])!r}
+if _banked:
+    _os.environ.setdefault("BANKED_DIR", f"/kaggle/input/{{_banked[0].split('/')[-1]}}")
 _os.environ.setdefault("BRANCH", "feat/lfm3-ternary")
 if __name__ == "__main__":
     main()
@@ -88,7 +93,7 @@ done
 mkdir -p "$WORK/out"
 kaggle kernels output "$USER_NAME/$SLUG" -p "$WORK/out"
 # results/ and REPORT.md land in the repo subtree; copy what the stage produced.
-for rel in results REPORT.md; do
+for rel in results REPORT.md checkpoints; do
   if [[ -e "$WORK/out/LFM3-Ternary/$rel" ]]; then
     mkdir -p "$ROOT/$(dirname "$rel")"
     cp -R "$WORK/out/LFM3-Ternary/$rel" "$ROOT/$rel"
