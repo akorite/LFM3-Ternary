@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 logger = logging.getLogger("run_catq")
+import torch
 
 
 def load_token_tensor(path: Path):
@@ -77,6 +78,9 @@ def main() -> None:
     p.add_argument("--delta0", type=float, default=0.5)
     p.add_argument("--lr", type=float, default=5e-3)
     p.add_argument("--batch-size", type=int, default=2)
+    p.add_argument("--fit-dtype", default="",
+                   help="dtype for the two fit GEMMs (e.g. fp16 on Turing); "
+                        "params, anchors, and the loss stay fp32/bf16")
     p.add_argument("--max-batches", type=int, default=0,
                    help="cap replay batches per layer pass; 0 replays the whole corpus")
     p.add_argument("--trust-remote-code", action="store_true", default=True)
@@ -104,9 +108,12 @@ def main() -> None:
     if not batches:
         raise SystemExit(f"calibration corpus {args.calib} yielded no batches")
     logger.info("replaying %d calibration batches", len(batches))
+    fit_dtype = {"fp16": torch.float16, "bf16": torch.bfloat16,
+                 "fp32": torch.float32}.get(args.fit_dtype) if args.fit_dtype else None
     recon = CatqReconstructor(model, args.group_size, args.gamma, args.s0,
                               args.delta0, args.lr, args.epochs,
-                              resume_dir=args.out / "ternary")
+                              resume_dir=args.out / "ternary",
+                              fit_dtype=fit_dtype)
     recon.run(batches, forward)
 
     hf_dir = args.out / "hf"

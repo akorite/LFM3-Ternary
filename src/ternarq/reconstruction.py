@@ -25,11 +25,15 @@ logger = logging.getLogger(__name__)
 class CatqReconstructor:
     def __init__(self, model: nn.Module, group_size: int = 128, gamma: float = 0.8,
                  s0: float = 30.0, delta0: float = 0.5, lr: float = 5e-3,
-                 epochs: int = 60, resume_dir: str | Path | None = None):
+                 epochs: int = 60, resume_dir: str | Path | None = None,
+                 fit_dtype: torch.dtype | None = None):
         self.model = model
         self.group_size, self.gamma, self.s0, self.delta0 = group_size, gamma, s0, delta0
         self.lr, self.epochs = lr, epochs
         self.resume_dir = Path(resume_dir) if resume_dir else None
+        # fp16 on a tensor-core card runs these GEMMs ~16x faster than emulated
+        # bf16; None keeps the model's own dtype (the A100 path)
+        self.fit_dtype = fit_dtype
         self.manifest: dict[str, dict] = {"group_size": group_size, "tensors": {}}
         if self.resume_dir is not None and (self.resume_dir / "tensors").is_dir():
             for f in sorted((self.resume_dir / "tensors").glob("*.pt")):
@@ -81,22 +85,33 @@ class CatqReconstructor:
                 f"expects {w.shape[-1]}")
         params = CatqParams.for_weight(
             w, self.group_size, self.gamma, self.s0, self.delta0)
+        if self.fit_dtype is not None:
+            # anchors and learnable factors stay fp32: fp16 would underflow
+            # alpha0 dead groups back into the 0-division this rung already hit
+            params.float()
         opt = torch.optim.AdamW(params.parameters(), lr=self.lr)
         skipped = 0
         epochs = self.epochs
         denom_w = w.detach()
+        denom_fit = denom_w.to(self.fit_dtype) if self.fit_dtype else denom_w
         for epoch in range(epochs):
             t = epoch / max(epochs - 1, 1)
             for x in inputs:
                 xf = x.reshape(-1, x.shape[-1]).to(w.device, w.dtype)
+                xf_fit = xf.to(self.fit_dtype) if self.fit_dtype else xf
                 # y is recomputed per epoch rather than cached: a 512-sample
                 # corpus holds ~20 GB of targets for w1/w3, which no 24GB card
                 # survives alongside the model.
                 with torch.no_grad():
-                    y = F.linear(xf, denom_w)
-                    norm = y.pow(2).mean().clamp_min(1e-8)
+                    y = F.linear(xf_fit, denom_fit)
+                    # fp32 accumulation: fp16 y^2 sums overflow at this width
+                    norm = y.float().pow(2).mean().clamp_min(1e-8)
                 w_hat = ternarize_weight(denom_w, params, t)
-                loss = (F.linear(xf, w_hat) - y).pow(2).mean() / norm
+                if self.fit_dtype is not None:
+                    pred = F.linear(xf_fit, w_hat.to(self.fit_dtype)).float()
+                    loss = (pred - y.float()).pow(2).mean() / norm
+                else:
+                    loss = (F.linear(xf, w_hat) - y).pow(2).mean() / norm
                 if not torch.isfinite(loss):
                     skipped += 1
                     continue
