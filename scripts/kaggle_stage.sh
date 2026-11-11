@@ -63,7 +63,7 @@ _os.chdir("/kaggle/working")
 _os.environ["STAGE"] = {stage!r}
 _os.environ["STAGE_ARGS"] = {json.dumps(stage_args)!r}
 _os.environ["REPO_DIR"] = "/kaggle/working/LFM3-Ternary"
-_banked = {json.dumps([d for d in __import__("os").environ.get("KAGGLE_DATASETS", "").split(",") if d])!r}
+_banked = {json.dumps([d for d in __import__("os").environ.get("KAGGLE_DATASETS", "").split(",") if d])}
 if _banked:
     _os.environ.setdefault("BANKED_DIR", f"/kaggle/input/{{_banked[0].split('/')[-1]}}")
 _os.environ.setdefault("BRANCH", "feat/lfm3-ternary")

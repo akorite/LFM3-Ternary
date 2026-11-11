@@ -26,7 +26,8 @@ class CatqReconstructor:
     def __init__(self, model: nn.Module, group_size: int = 128, gamma: float = 0.8,
                  s0: float = 30.0, delta0: float = 0.5, lr: float = 5e-3,
                  epochs: int = 60, resume_dir: str | Path | None = None,
-                 fit_dtype: torch.dtype | None = None):
+                 fit_dtype: torch.dtype | None = None,
+                 spool_dir: str | Path | None = None):
         self.model = model
         self.group_size, self.gamma, self.s0, self.delta0 = group_size, gamma, s0, delta0
         self.lr, self.epochs = lr, epochs
@@ -34,6 +35,7 @@ class CatqReconstructor:
         # fp16 on a tensor-core card runs these GEMMs ~16x faster than emulated
         # bf16; None keeps the model's own dtype (the A100 path)
         self.fit_dtype = fit_dtype
+        self.spool_dir = Path(spool_dir) if spool_dir else None
         self.manifest: dict[str, dict] = {"group_size": group_size, "tensors": {}}
         if self.resume_dir is not None and (self.resume_dir / "tensors").is_dir():
             for f in sorted((self.resume_dir / "tensors").glob("*.pt")):
@@ -45,11 +47,19 @@ class CatqReconstructor:
 
     @torch.no_grad()
     def _capture(self, layer: nn.Module, batches: Iterable,
-                 forward_fn: Callable[[nn.Module, object], object]) -> dict[str, list[torch.Tensor]]:
-        """One forward pass over `batches`; returns linear-name -> input chunks."""
+                 forward_fn: Callable[[nn.Module, object], object]) -> dict[str, list]:
+        """One forward pass; returns linear-name -> per-batch input handles.
+
+        Handles are CPU tensors when `spool_dir` is None (small model or
+        plenty of RAM) and Paths to torch.save'd chunks when it is set — a
+        256-batch layer otherwise holds ~21GB of activations on top of the
+        model, which OOM-killed a 16GB-RAM host at layer 2."""
         linears = quantizable_linears(layer)
         captured = {name: [] for name in linears}
         shared: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+        spool = self.spool_dir
+        if spool is not None:
+            spool.mkdir(parents=True, exist_ok=True)
 
         def _copy(x: torch.Tensor) -> torch.Tensor:
             """CPU copy of `x`, shared by every projection that reads it."""
@@ -66,9 +76,15 @@ class CatqReconstructor:
                 captured[_name].append(_copy(args[0]))
             hooks.append(mod.register_forward_pre_hook(_hook))
         try:
-            for batch in batches:
+            for bi, batch in enumerate(batches):
                 shared.clear()
                 forward_fn(self.model, batch)
+                if spool is not None:
+                    for name, chunks in captured.items():
+                        if len(chunks) > bi:        # this hook fired this batch
+                            path = spool / f"{name.replace('.', '_')}__{bi:05d}.pt"
+                            torch.save(chunks[bi], path)
+                            chunks[bi] = path
         finally:
             for h in hooks:
                 h.remove()
@@ -79,9 +95,12 @@ class CatqReconstructor:
         if not inputs:
             raise RuntimeError(f"no captured inputs for {name}")
         w = linear.weight
-        if inputs[0].shape[-1] != w.shape[-1]:
+        first = inputs[0]
+        if isinstance(first, Path):
+            first = torch.load(first, map_location="cpu", weights_only=True)
+        if first.shape[-1] != w.shape[-1]:
             raise ValueError(
-                f"{name}: captured inputs are {inputs[0].shape[-1]}-wide but the weight "
+                f"{name}: captured inputs are {first.shape[-1]}-wide but the weight "
                 f"expects {w.shape[-1]}")
         params = CatqParams.for_weight(
             w, self.group_size, self.gamma, self.s0, self.delta0)
@@ -97,6 +116,8 @@ class CatqReconstructor:
         for epoch in range(epochs):
             t = epoch / max(epochs - 1, 1)
             for x in inputs:
+                if isinstance(x, Path):
+                    x = torch.load(x, map_location="cpu", weights_only=True)
                 xf = x.reshape(-1, x.shape[-1]).to(w.device, w.dtype)
                 xf_fit = xf.to(self.fit_dtype) if self.fit_dtype else xf
                 # y is recomputed per epoch rather than cached: a 512-sample

@@ -113,7 +113,8 @@ def main() -> None:
     recon = CatqReconstructor(model, args.group_size, args.gamma, args.s0,
                               args.delta0, args.lr, args.epochs,
                               resume_dir=args.out / "ternary",
-                              fit_dtype=fit_dtype)
+                              fit_dtype=fit_dtype,
+                              spool_dir=args.out / "spool")
     recon.run(batches, forward)
 
     hf_dir = args.out / "hf"

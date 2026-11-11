@@ -168,3 +168,17 @@ def test_fit_survives_extreme_d_alpha_drift():
         p.d_alpha.fill_(-50.0)
     for t in (0.1, 0.9, 1.0):
         assert torch.isfinite(ternarize_weight(w, p, t)).all()
+
+
+def test_spool_capture_uses_disk_handles_and_stays_finite(tmp_path):
+    """The OOM fix: captures land on disk, fits read them lazily."""
+    model = ToyStack()
+    spool = tmp_path / "spool"
+    recon = CatqReconstructor(model, group_size=8, epochs=1, spool_dir=spool)
+    layer = model.model.layers[0]
+    captured = recon._capture(layer, _batches(), lambda m, b: m(b))
+    for name, chunks in captured.items():
+        assert all(isinstance(c, Path) for c in chunks), name
+    recon.run(_batches(), lambda m, b: m(b))
+    for n, e in recon.manifest["tensors"].items():
+        assert torch.isfinite(e["alpha"]).all() and torch.isfinite(e["codes"].float()).all(), n
