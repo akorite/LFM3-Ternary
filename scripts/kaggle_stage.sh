@@ -66,6 +66,9 @@ _os.environ["REPO_DIR"] = "/kaggle/working/LFM3-Ternary"
 _banked = {json.dumps([d for d in __import__("os").environ.get("KAGGLE_DATASETS", "").split(",") if d])}
 if _banked:
     _os.environ.setdefault("BANKED_DIR", f"/kaggle/input/{{_banked[0].split('/')[-1]}}")
+_seed = {json.dumps(__import__("os").environ.get("KAGGLE_SEED", ""))!r}
+if _seed:
+    _os.environ.setdefault("SEED_REPO_DIR", f"/kaggle/input/{{_seed.split('/')[-1]}}")
 _os.environ.setdefault("BRANCH", "feat/lfm3-ternary")
 if __name__ == "__main__":
     main()
