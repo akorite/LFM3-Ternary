@@ -175,7 +175,7 @@ def seed_banked(repo: Path, stage: str) -> int:
     dst = repo / "checkpoints" / stage / "ternary" / "tensors"
     dst.mkdir(parents=True, exist_ok=True)
     n = 0
-    for f in src.glob("*.pt"):
+    for f in src.rglob("*.pt"):
         target = dst / f.name
         if not target.exists():
             shutil.copy2(f, target)
