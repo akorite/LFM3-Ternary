@@ -93,6 +93,11 @@ done
 mkdir -p "$WORK/out"
 kaggle kernels output "$USER_NAME/$SLUG" -p "$WORK/out"
 # results/ and REPORT.md land in the repo subtree; copy what the stage produced.
+# out_tensors/ is returned even when the kernel was killed mid-rung
+if [[ -d "$WORK/out/out_tensors" ]]; then
+  mkdir -p "$ROOT/checkpoints/$STAGE/ternary/tensors"
+  cp -n "$WORK/out/out_tensors"/*.pt "$ROOT/checkpoints/$STAGE/ternary/tensors/" 2>/dev/null || true
+fi
 for rel in results REPORT.md checkpoints; do
   if [[ -e "$WORK/out/LFM3-Ternary/$rel" ]]; then
     mkdir -p "$ROOT/$(dirname "$rel")"

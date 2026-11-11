@@ -150,14 +150,19 @@ class CatqReconstructor:
             w.copy_(recon.to(w.dtype))
 
     def _persist(self, name: str, entry: dict) -> None:
-        """Drop one fitted tensor's codes on disk; survives a lost session."""
-        if self.resume_dir is None:
-            return
-        parts = self.resume_dir / "tensors"
-        parts.mkdir(parents=True, exist_ok=True)
-        tmp = parts / f"{name}.tmp"
-        torch.save(entry, tmp)
-        tmp.rename(parts / f"{name}.pt")
+        """Drop one fitted tensor's codes on disk; survives a lost session.
+        KAGGLE_OUTPUT mirrors each file into the kernel's returned output dir,
+        so a 12h-capped kernel hands back every fit it finished."""
+        import os
+        dirs = [self.resume_dir / "tensors"] if self.resume_dir is not None else []
+        ko = os.environ.get("KAGGLE_OUTPUT")
+        if ko:
+            dirs.append(Path(ko))
+        for parts in dirs:
+            parts.mkdir(parents=True, exist_ok=True)
+            tmp = parts / f"{name}.tmp"
+            torch.save(entry, tmp)
+            tmp.rename(parts / f"{name}.pt")
 
     def save_manifest(self, out_dir: str | Path) -> Path:
         out_dir = Path(out_dir)
