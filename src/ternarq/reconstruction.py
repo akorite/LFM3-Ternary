@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -174,8 +175,13 @@ class CatqReconstructor:
                 entry = self._fit_linear(qual, linear, captured[name])
                 self.manifest["tensors"][qual] = entry
                 self._persist(qual, entry)
+                for c in captured[name]:
+                    if isinstance(c, Path):
+                        c.unlink(missing_ok=True)
                 logger.info("layer %d/%d: fit %s %s", idx + 1, total, qual,
                             tuple(linear.weight.shape))
+            if self.spool_dir is not None:
+                shutil.rmtree(self.spool_dir, ignore_errors=True)
         return self.manifest
 
     def _apply_saved(self, linear: nn.Linear, entry: dict) -> None:

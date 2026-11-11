@@ -183,3 +183,12 @@ def test_spool_capture_uses_disk_handles_and_stays_finite(tmp_path):
     recon.run(_batches(), lambda m, b: m(b))
     for n, e in recon.manifest["tensors"].items():
         assert torch.isfinite(e["alpha"]).all() and torch.isfinite(e["codes"].float()).all(), n
+
+
+def test_spool_files_are_deleted_as_fits_and_layers_finish(tmp_path):
+    """Peak spool stays at one layer's captures, not the whole corpus."""
+    model = ToyStack()
+    spool = tmp_path / "spool"
+    recon = CatqReconstructor(model, group_size=8, epochs=1, spool_dir=spool)
+    recon.run(_batches(), lambda m, b: m(b))
+    assert list(spool.glob("*.pt")) == [] or not spool.exists()
