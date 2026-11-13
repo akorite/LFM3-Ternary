@@ -1,0 +1,7 @@
+data/calib/*
+!data/calib/.gitkeep
+checkpoints/
+__pycache__/
+*.pyc
+.pytest_cache/
+logs/

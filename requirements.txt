@@ -1,0 +1,10 @@
+# Pipeline runtime; the notebooks install exactly this.
+torch>=2.4
+transformers>=5.12.1
+accelerate
+datasets
+sentencepiece
+safetensors
+numpy
+gguf
+lm-eval==0.4.13
